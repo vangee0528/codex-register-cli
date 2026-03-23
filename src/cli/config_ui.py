@@ -16,19 +16,20 @@ HTML_PAGE = """<!doctype html>
   <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />
   <title>codex-console config</title>
   <style>
-    :root { --bg:#f4efe5; --card:#fffaf0; --ink:#1f2a2e; --accent:#b85c38; --line:#d9cdbd; }
-    body { margin:0; font-family:Georgia,serif; background:linear-gradient(135deg,#f4efe5,#e9dcc7); color:var(--ink); }
-    .wrap { max-width:1100px; margin:0 auto; padding:24px; }
+    :root { --bg:#f1efe8; --card:#fffdf8; --ink:#1f2933; --accent:#9e3d22; --line:#ddd3c3; --muted:#66727f; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Georgia,serif; background:radial-gradient(circle at top,#f9f4ea,#ebe1cf 55%,#e1d4bf); color:var(--ink); }
+    .wrap { max-width:1280px; margin:0 auto; padding:24px; }
     h1 { margin:0 0 8px; font-size:34px; }
-    p { margin:0 0 18px; }
+    p { margin:0 0 18px; color:var(--muted); }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 12px 30px rgba(31,42,46,.08); }
-    .card h2 { margin:0 0 14px; font-size:20px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 14px 34px rgba(31,41,51,.08); }
+    .card h2 { margin:0 0 12px; font-size:20px; }
     label { display:block; margin:10px 0 6px; font-size:14px; font-weight:700; }
-    input, textarea, select { width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; }
+    input, textarea, select { width:100%; border:1px solid var(--line); border-radius:12px; padding:10px 12px; font:inherit; background:#fff; }
     textarea { min-height:180px; resize:vertical; font-family:Consolas,monospace; font-size:13px; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    .actions { display:flex; gap:12px; margin-top:18px; }
+    .actions { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; }
     button { border:0; border-radius:999px; padding:12px 18px; font:inherit; cursor:pointer; background:var(--accent); color:#fff; }
     button.secondary { background:#415a60; }
     #status { margin-top:14px; font-weight:700; }
@@ -38,15 +39,44 @@ HTML_PAGE = """<!doctype html>
 <body>
   <div class=\"wrap\">
     <h1>Config Editor</h1>
-    <p>Edit <span id=\"config-path\" class=\"mono\"></span> and save directly to <code>config.json</code>.</p>
+    <p>Edit <span id=\"config-path\" class=\"mono\"></span>. Daily usage should mostly rely on these defaults.</p>
     <div class=\"grid\">
       <section class=\"card\">
         <h2>General</h2>
         <label>database_url</label><input id=\"database_url\" />
-        <label>log_level</label><input id=\"log_level\" />
-        <label>log_file</label><input id=\"log_file\" />
-        <label>registration_timeout</label><input id=\"registration_timeout\" type=\"number\" />
-        <label>registration_max_retries</label><input id=\"registration_max_retries\" type=\"number\" />
+        <div class=\"row\">
+          <div><label>log_level</label><input id=\"log_level\" /></div>
+          <div><label>log_file</label><input id=\"log_file\" /></div>
+        </div>
+        <label>config_ui_host</label><input id=\"config_ui_host\" />
+        <label>config_ui_port</label><input id=\"config_ui_port\" type=\"number\" />
+      </section>
+      <section class=\"card\">
+        <h2>Workflow Defaults</h2>
+        <div class=\"row\">
+          <div><label>workflow.target_account_count</label><input id=\"workflow.target_account_count\" type=\"number\" /></div>
+          <div><label>workflow.max_registration_attempts</label><input id=\"workflow.max_registration_attempts\" type=\"number\" /></div>
+        </div>
+        <label>workflow.refresh_before_validate</label><select id=\"workflow.refresh_before_validate\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>workflow.auto_delete_invalid</label><select id=\"workflow.auto_delete_invalid\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>workflow.auto_sync_cpa</label><select id=\"workflow.auto_sync_cpa\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+      </section>
+      <section class=\"card\">
+        <h2>Default Resources</h2>
+        <div class=\"row\">
+          <div><label>defaults.email_service_type</label><input id=\"defaults.email_service_type\" /></div>
+          <div><label>registration.default_count</label><input id=\"registration.default_count\" type=\"number\" /></div>
+        </div>
+        <div class=\"row\">
+          <div><label>defaults.email_service_id</label><input id=\"defaults.email_service_id\" type=\"number\" /></div>
+          <div><label>defaults.proxy_id</label><input id=\"defaults.proxy_id\" type=\"number\" /></div>
+        </div>
+        <div class=\"row\">
+          <div><label>defaults.cpa_service_id</label><input id=\"defaults.cpa_service_id\" type=\"number\" /></div>
+          <div><label>registration.auto_upload_cpa</label><select id=\"registration.auto_upload_cpa\"><option value=\"true\">true</option><option value=\"false\">false</option></select></div>
+        </div>
+        <label>registration.save_to_database</label><select id=\"registration.save_to_database\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>registration.service_config</label><textarea id=\"registration.service_config\"></textarea>
       </section>
       <section class=\"card\">
         <h2>Static Proxy</h2>
@@ -58,6 +88,22 @@ HTML_PAGE = """<!doctype html>
         <label>proxy_host</label><input id=\"proxy_host\" />
         <label>proxy_username</label><input id=\"proxy_username\" />
         <label>proxy_password</label><input id=\"proxy_password\" type=\"password\" />
+      </section>
+      <section class=\"card\">
+        <h2>Proxy Policy</h2>
+        <label>proxy_policy.registration</label><select id=\"proxy_policy.registration\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>proxy_policy.account_validate</label><select id=\"proxy_policy.account_validate\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>proxy_policy.token_refresh</label><select id=\"proxy_policy.token_refresh\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>proxy_policy.cpa_upload</label><select id=\"proxy_policy.cpa_upload\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>proxy_policy.cpa_test</label><select id=\"proxy_policy.cpa_test\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+      </section>
+      <section class=\"card\">
+        <h2>Dynamic Proxy</h2>
+        <label>proxy_dynamic.enabled</label><select id=\"proxy_dynamic.enabled\"><option value=\"true\">true</option><option value=\"false\">false</option></select>
+        <label>proxy_dynamic.api_url</label><input id=\"proxy_dynamic.api_url\" />
+        <label>proxy_dynamic.api_key</label><input id=\"proxy_dynamic.api_key\" type=\"password\" />
+        <label>proxy_dynamic.api_key_header</label><input id=\"proxy_dynamic.api_key_header\" />
+        <label>proxy_dynamic.result_field</label><input id=\"proxy_dynamic.result_field\" />
       </section>
       <section class=\"card\">
         <h2>Mail Defaults</h2>
@@ -98,25 +144,106 @@ HTML_PAGE = """<!doctype html>
     <div id=\"status\"></div>
   </div>
 <script>
-const fields = [
-  'database_url','log_level','log_file','registration_timeout','registration_max_retries',
-  'proxy_enabled','proxy_type','proxy_host','proxy_port','proxy_username','proxy_password',
-  'tempmail_base_url','tempmail_timeout','tempmail_max_retries','custom_domain_base_url','custom_domain_api_key',
-  'cpa_enabled','cpa_api_url','cpa_api_token'
+const fieldDefs = [
+  { id: 'database_url', type: 'string' },
+  { id: 'log_level', type: 'string' },
+  { id: 'log_file', type: 'string' },
+  { id: 'config_ui_host', type: 'string' },
+  { id: 'config_ui_port', type: 'number' },
+  { id: 'workflow.target_account_count', type: 'number' },
+  { id: 'workflow.max_registration_attempts', type: 'number' },
+  { id: 'workflow.refresh_before_validate', type: 'boolean' },
+  { id: 'workflow.auto_delete_invalid', type: 'boolean' },
+  { id: 'workflow.auto_sync_cpa', type: 'boolean' },
+  { id: 'defaults.email_service_type', type: 'string' },
+  { id: 'defaults.email_service_id', type: 'nullable-number' },
+  { id: 'defaults.proxy_id', type: 'nullable-number' },
+  { id: 'defaults.cpa_service_id', type: 'nullable-number' },
+  { id: 'registration.default_count', type: 'number' },
+  { id: 'registration.auto_upload_cpa', type: 'boolean' },
+  { id: 'registration.save_to_database', type: 'boolean' },
+  { id: 'registration.service_config', type: 'json-object' },
+  { id: 'proxy_enabled', type: 'boolean' },
+  { id: 'proxy_type', type: 'string' },
+  { id: 'proxy_host', type: 'string' },
+  { id: 'proxy_port', type: 'number' },
+  { id: 'proxy_username', type: 'string' },
+  { id: 'proxy_password', type: 'string' },
+  { id: 'proxy_policy.registration', type: 'boolean' },
+  { id: 'proxy_policy.account_validate', type: 'boolean' },
+  { id: 'proxy_policy.token_refresh', type: 'boolean' },
+  { id: 'proxy_policy.cpa_upload', type: 'boolean' },
+  { id: 'proxy_policy.cpa_test', type: 'boolean' },
+  { id: 'proxy_dynamic.enabled', type: 'boolean' },
+  { id: 'proxy_dynamic.api_url', type: 'string' },
+  { id: 'proxy_dynamic.api_key', type: 'string' },
+  { id: 'proxy_dynamic.api_key_header', type: 'string' },
+  { id: 'proxy_dynamic.result_field', type: 'string' },
+  { id: 'tempmail_base_url', type: 'string' },
+  { id: 'tempmail_timeout', type: 'number' },
+  { id: 'tempmail_max_retries', type: 'number' },
+  { id: 'custom_domain_base_url', type: 'string' },
+  { id: 'custom_domain_api_key', type: 'string' },
+  { id: 'cpa_enabled', type: 'boolean' },
+  { id: 'cpa_api_url', type: 'string' },
+  { id: 'cpa_api_token', type: 'string' }
 ];
-const jsonFields = ['proxies','email_services','cpa_services'];
+const jsonArrayFields = ['proxies', 'email_services', 'cpa_services'];
+
+function readPath(obj, path) {
+  return path.split('.').reduce((current, key) => current == null ? undefined : current[key], obj);
+}
+
+function writePath(obj, path, value) {
+  const parts = path.split('.');
+  let current = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (typeof current[key] !== 'object' || current[key] === null || Array.isArray(current[key])) {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  current[parts[parts.length - 1]] = value;
+}
+
+function formatValue(value, type) {
+  if (type === 'json-object') {
+    return JSON.stringify(value || {}, null, 2);
+  }
+  if (value === undefined || value === null) {
+    return '';
+  }
+  return String(value);
+}
+
+function parseValue(raw, type) {
+  if (type === 'boolean') {
+    return raw === 'true';
+  }
+  if (type === 'number') {
+    return raw === '' ? 0 : Number(raw);
+  }
+  if (type === 'nullable-number') {
+    return raw === '' ? null : Number(raw);
+  }
+  if (type === 'json-object') {
+    return JSON.parse(raw || '{}');
+  }
+  return raw;
+}
 
 async function loadConfig() {
   const response = await fetch('/api/config');
   const payload = await response.json();
   document.getElementById('config-path').textContent = payload.path;
   const cfg = payload.config;
-  for (const key of fields) {
-    const node = document.getElementById(key);
-    const value = cfg[key];
-    node.value = value === undefined || value === null ? '' : String(value);
+
+  for (const field of fieldDefs) {
+    const node = document.getElementById(field.id);
+    node.value = formatValue(readPath(cfg, field.id), field.type);
   }
-  for (const key of jsonFields) {
+  for (const key of jsonArrayFields) {
     document.getElementById(key).value = JSON.stringify(cfg[key] || [], null, 2);
   }
   setStatus('Loaded config.json', false);
@@ -131,19 +258,14 @@ function setStatus(message, isError) {
 async function saveConfig() {
   try {
     const payload = {};
-    for (const key of fields) {
-      const node = document.getElementById(key);
-      let value = node.value;
-      if (key.endsWith('_enabled')) {
-        value = value === 'true';
-      } else if (['registration_timeout','registration_max_retries','proxy_port','tempmail_timeout','tempmail_max_retries'].includes(key)) {
-        value = value === '' ? 0 : Number(value);
-      }
-      payload[key] = value;
+    for (const field of fieldDefs) {
+      const node = document.getElementById(field.id);
+      writePath(payload, field.id, parseValue(node.value, field.type));
     }
-    for (const key of jsonFields) {
+    for (const key of jsonArrayFields) {
       payload[key] = JSON.parse(document.getElementById(key).value || '[]');
     }
+
     const response = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

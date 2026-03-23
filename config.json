@@ -2,7 +2,7 @@
   "app_name": "OpenAI/Codex CLI registration system",
   "app_version": "2.1.0",
   "debug": false,
-  "database_url": "data/database.db",
+  "database_url": "sqlite:///data/database.db",
   "log_level": "INFO",
   "log_file": "logs/app.log",
   "log_retention_days": 30,
@@ -11,10 +11,10 @@
   "openai_token_url": "https://auth.openai.com/oauth/token",
   "openai_redirect_uri": "http://localhost:1455/auth/callback",
   "openai_scope": "openid email profile offline_access",
-  "proxy_enabled": false,
+  "proxy_enabled": true,
   "proxy_type": "http",
   "proxy_host": "127.0.0.1",
-  "proxy_port": 7890,
+  "proxy_port": 7897,
   "proxy_username": "",
   "proxy_password": "",
   "registration_max_retries": 3,
@@ -28,8 +28,8 @@
   "custom_domain_base_url": "",
   "custom_domain_api_key": "",
   "cpa_enabled": false,
-  "cpa_api_url": "",
-  "cpa_api_token": "",
+  "cpa_api_url": "127.0.0.1:8317",
+  "cpa_api_token": "123456",
   "email_code_timeout": 120,
   "email_code_poll_interval": 3,
   "outlook_provider_priority": [
@@ -42,6 +42,39 @@
   "outlook_default_client_id": "24d9a0ed-8787-4584-883c-2fd79308940a",
   "config_ui_host": "127.0.0.1",
   "config_ui_port": 8765,
+  "defaults": {
+    "email_service_type": "tempmail",
+    "email_service_id": null,
+    "proxy_id": null,
+    "cpa_service_id": null
+  },
+  "registration": {
+    "default_count": 1,
+    "auto_upload_cpa": false,
+    "save_to_database": true,
+    "service_config": {}
+  },
+  "workflow": {
+    "target_account_count": 10,
+    "refresh_before_validate": true,
+    "auto_delete_invalid": true,
+    "auto_sync_cpa": false,
+    "max_registration_attempts": 0
+  },
+  "proxy_policy": {
+    "registration": true,
+    "account_validate": true,
+    "token_refresh": true,
+    "cpa_upload": false,
+    "cpa_test": false
+  },
+  "proxy_dynamic": {
+    "enabled": false,
+    "api_url": "",
+    "api_key": "",
+    "api_key_header": "X-API-Key",
+    "result_field": ""
+  },
   "proxies": [],
   "email_services": [],
   "cpa_services": []

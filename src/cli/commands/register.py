@@ -22,27 +22,34 @@ SERVICE_TYPE_CHOICES = ["tempmail", "outlook", "moe_mail", "temp_mail", "duck_ma
 
 
 def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    parser = subparsers.add_parser("register", help="run one or more registration flows")
+    parser = subparsers.add_parser("register", help="register one or more accounts")
+    parser.add_argument("--count", type=positive_int, help="temporary override for config.registration.default_count")
     parser.add_argument(
-        "--service-type",
-        choices=SERVICE_TYPE_CHOICES,
-        default="tempmail",
-        help="email service type to use when --service-id is not provided",
+        "--upload-cpa",
+        dest="auto_upload_cpa",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="temporarily enable or disable CPA upload after successful registration",
     )
-    parser.add_argument("--service-id", type=int, help="database email service id; overrides --service-type")
-    parser.add_argument("--service-config", help="inline JSON object merged into the resolved email service config")
-    parser.add_argument("--service-config-file", help="path to a JSON file merged into the resolved email service config")
-    parser.add_argument("--proxy", help="proxy URL, for example http://user:pass@host:port")
-    parser.add_argument("--proxy-id", type=int, help="database proxy id")
-    parser.add_argument("--database-url", help="override the database URL for this run")
     parser.add_argument("--output", choices=("text", "json"), default="text", help="final result format")
-    parser.add_argument("--no-save", action="store_true", help="do not persist successful registrations into the accounts table")
-    parser.add_argument("--log-level", help="override configured log level")
-    parser.add_argument("--count", type=positive_int, default=1, help="number of sequential registration attempts to run")
-    parser.add_argument("--auto-upload-cpa", action="store_true", help="upload each successful registration to CPA after completion")
-    parser.add_argument("--cpa-api-url", help="CPA API URL override used with --auto-upload-cpa")
-    parser.add_argument("--cpa-api-token", help="CPA API token override used with --auto-upload-cpa")
-    parser.add_argument("--cpa-service-id", type=int, help="database CPA service id used with --auto-upload-cpa")
+
+    parser.add_argument("--service-type", choices=SERVICE_TYPE_CHOICES, help=argparse.SUPPRESS)
+    parser.add_argument("--service-id", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--service-config", help=argparse.SUPPRESS)
+    parser.add_argument("--service-config-file", help=argparse.SUPPRESS)
+    parser.add_argument("--proxy", help=argparse.SUPPRESS)
+    parser.add_argument("--proxy-id", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--database-url", help=argparse.SUPPRESS)
+    parser.add_argument("--log-level", help=argparse.SUPPRESS)
+    parser.add_argument("--cpa-api-url", help=argparse.SUPPRESS)
+    parser.add_argument("--cpa-api-token", help=argparse.SUPPRESS)
+    parser.add_argument("--cpa-service-id", type=int, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--save-to-database",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     parser.set_defaults(handler=run_register_command)
 
 
@@ -137,6 +144,13 @@ def _upload_registration_to_cpa(args: argparse.Namespace, settings, payload: dic
             api_token=args.cpa_api_token,
             service_id=args.cpa_service_id,
         )
+        proxy_url, _, proxy_source = resolve_proxy(
+            db,
+            settings,
+            behavior="cpa_upload",
+            explicit_proxy=args.proxy,
+            proxy_id=args.proxy_id,
+        )
     validate_cpa_target(target)
 
     token_payload: dict[str, Any]
@@ -160,6 +174,7 @@ def _upload_registration_to_cpa(args: argparse.Namespace, settings, payload: dic
 
     success, message = upload_to_cpa(
         token_payload,
+        proxy=proxy_url,
         api_url=target.api_url,
         api_token=target.api_token,
     )
@@ -180,6 +195,10 @@ def _upload_registration_to_cpa(args: argparse.Namespace, settings, payload: dic
         "service_id": target.service_id,
         "service_name": target.name,
         "api_url": target.api_url,
+        "proxy": {
+            "url": proxy_url,
+            "source": proxy_source,
+        },
     }
 
 
@@ -201,6 +220,7 @@ def _run_single_registration(
         proxy_url, proxy_id, proxy_source = resolve_proxy(
             db,
             settings,
+            behavior="registration",
             explicit_proxy=args.proxy,
             proxy_id=args.proxy_id,
         )
@@ -227,7 +247,7 @@ def _run_single_registration(
 
     saved_to_database = False
     saved_account_id: int | None = None
-    if result.success and not args.no_save:
+    if result.success and args.save_to_database:
         saved_to_database = engine.save_to_database(result)
         if saved_to_database:
             with get_db() as db:
@@ -256,7 +276,17 @@ def _run_single_registration(
 
 def run_register_command(args: argparse.Namespace) -> int:
     settings = bootstrap_cli(database_url=args.database_url, log_level=args.log_level)
-    service_config = parse_service_config(args.service_config, args.service_config_file)
+
+    args.count = args.count or settings.registration.default_count
+    if args.auto_upload_cpa is None:
+        args.auto_upload_cpa = settings.registration.auto_upload_cpa
+    if args.save_to_database is None:
+        args.save_to_database = settings.registration.save_to_database
+
+    service_config = {
+        **settings.registration.service_config,
+        **parse_service_config(args.service_config, args.service_config_file),
+    }
 
     results = [
         _run_single_registration(args, settings, service_config, sequence=index, total_count=args.count)

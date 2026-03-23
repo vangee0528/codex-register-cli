@@ -15,7 +15,8 @@ from ..account_selection import add_account_selection_arguments, resolve_explici
 from ..bootstrap import bootstrap_cli
 from ..common import emit_output, positive_int
 from ..cpa import resolve_cpa_target, validate_cpa_target
-from .register import SERVICE_TYPE_CHOICES, _run_single_registration
+from ..registration import parse_service_config, resolve_proxy
+from .register import _run_single_registration
 
 
 STATUS_ACTIVE = "active"
@@ -27,44 +28,74 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     account_subparsers = parser.add_subparsers(dest="accounts_command", required=True)
 
     list_parser = account_subparsers.add_parser("list", help="list accounts stored in the database")
-    list_parser.add_argument("--database-url", help="override the database URL for this run")
     list_parser.add_argument("--status", choices=("active", "expired", "banned", "failed"))
     list_parser.add_argument("--search", help="substring match on email, account id, or workspace id")
     list_parser.add_argument("--limit", type=int, default=100)
     list_parser.add_argument("--output", choices=("text", "json"), default="text")
+    list_parser.add_argument("--database-url", help=argparse.SUPPRESS)
     list_parser.set_defaults(handler=run_list_accounts_command)
 
-    validate_parser = account_subparsers.add_parser("validate", help="validate account availability via stored access tokens")
-    validate_parser.add_argument("--database-url", help="override the database URL for this run")
-    add_account_selection_arguments(validate_parser, include_proxy=True)
-    validate_parser.add_argument("--refresh-before-validate", action="store_true", help="try refreshing the token before validation")
+    validate_parser = account_subparsers.add_parser("validate", help="validate stored accounts")
+    add_account_selection_arguments(validate_parser, include_proxy=False)
+    validate_parser.add_argument(
+        "--refresh-before-validate",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="temporarily override config.workflow.refresh_before_validate",
+    )
     validate_parser.add_argument("--output", choices=("text", "json"), default="text")
+    validate_parser.add_argument("--database-url", help=argparse.SUPPRESS)
+    validate_parser.add_argument("--proxy", help=argparse.SUPPRESS)
+    validate_parser.add_argument("--proxy-id", type=int, help=argparse.SUPPRESS)
     validate_parser.set_defaults(handler=run_validate_accounts_command)
 
-    delete_invalid_parser = account_subparsers.add_parser("delete-invalid", help="validate accounts and delete the invalid ones")
-    delete_invalid_parser.add_argument("--database-url", help="override the database URL for this run")
-    add_account_selection_arguments(delete_invalid_parser, include_proxy=True)
-    delete_invalid_parser.add_argument("--refresh-before-validate", action="store_true", help="try refreshing the token before validation")
+    delete_invalid_parser = account_subparsers.add_parser("delete-invalid", help="validate and delete invalid accounts")
+    add_account_selection_arguments(delete_invalid_parser, include_proxy=False)
+    delete_invalid_parser.add_argument(
+        "--refresh-before-validate",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="temporarily override config.workflow.refresh_before_validate",
+    )
     delete_invalid_parser.add_argument("--output", choices=("text", "json"), default="text")
+    delete_invalid_parser.add_argument("--database-url", help=argparse.SUPPRESS)
+    delete_invalid_parser.add_argument("--proxy", help=argparse.SUPPRESS)
+    delete_invalid_parser.add_argument("--proxy-id", type=int, help=argparse.SUPPRESS)
     delete_invalid_parser.set_defaults(handler=run_delete_invalid_accounts_command)
 
-    ensure_parser = account_subparsers.add_parser("ensure-target", help="ensure the database contains the requested number of valid accounts")
-    ensure_parser.add_argument("--database-url", help="override the database URL for this run")
-    ensure_parser.add_argument("--target-count", type=positive_int, required=True, help="desired number of valid accounts after validation and refill")
-    ensure_parser.add_argument("--refresh-before-validate", action="store_true", help="try refreshing stored tokens before validation")
-    ensure_parser.add_argument("--proxy", help="proxy URL used for validation and registration")
-    ensure_parser.add_argument("--proxy-id", type=int, help="database proxy id used for registration")
-    ensure_parser.add_argument("--service-type", choices=SERVICE_TYPE_CHOICES, default="tempmail", help="email service type to use when --service-id is not provided")
-    ensure_parser.add_argument("--service-id", type=int, help="database email service id; overrides --service-type")
-    ensure_parser.add_argument("--service-config", help="inline JSON object merged into the resolved email service config")
-    ensure_parser.add_argument("--service-config-file", help="path to a JSON file merged into the resolved email service config")
-    ensure_parser.add_argument("--log-level", help="override configured log level")
-    ensure_parser.add_argument("--max-attempts", type=positive_int, help="maximum registration attempts used to close the account gap")
-    ensure_parser.add_argument("--skip-cpa-sync", action="store_true", help="skip the final CPA upload of all active accounts")
-    ensure_parser.add_argument("--cpa-api-url", help="CPA API URL override")
-    ensure_parser.add_argument("--cpa-api-token", help="CPA API token override")
-    ensure_parser.add_argument("--cpa-service-id", type=int, help="database CPA service id")
+    ensure_parser = account_subparsers.add_parser("ensure-target", help="legacy workflow alias; prefer `run`")
+    ensure_parser.add_argument("--target-count", type=positive_int, help="temporary override for config.workflow.target_account_count")
+    ensure_parser.add_argument(
+        "--refresh-before-validate",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="temporarily override config.workflow.refresh_before_validate",
+    )
+    ensure_parser.add_argument(
+        "--sync-cpa",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="temporarily override config.workflow.auto_sync_cpa",
+    )
     ensure_parser.add_argument("--output", choices=("text", "json"), default="text")
+    ensure_parser.add_argument("--database-url", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--log-level", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--proxy", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--proxy-id", type=int, help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--service-type", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--service-id", type=int, help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--service-config", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--service-config-file", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--max-attempts", type=positive_int, help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--cpa-api-url", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--cpa-api-token", help=argparse.SUPPRESS)
+    ensure_parser.add_argument("--cpa-service-id", type=int, help=argparse.SUPPRESS)
+    ensure_parser.add_argument(
+        "--delete-invalid-accounts",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     ensure_parser.set_defaults(handler=run_ensure_target_accounts_command)
 
 
@@ -125,6 +156,10 @@ def _print_ensure_target_result(payload: dict[str, Any]) -> None:
         print(f"cpa_skipped: {payload['cpa_sync']['skipped_count']}")
 
 
+def _use_all_accounts_by_default(explicit_ids: list[int], all_accounts: bool) -> bool:
+    return all_accounts or not explicit_ids
+
+
 def run_list_accounts_command(args: argparse.Namespace) -> int:
     bootstrap_cli(database_url=args.database_url, log_level=None)
     with get_db() as db:
@@ -163,24 +198,42 @@ def _load_snapshots(
 def _validate_snapshots(
     snapshots: list[dict[str, Any]],
     *,
+    settings,
     proxy: str | None,
+    proxy_id: int | None,
     refresh_before_validate: bool,
     delete_invalid: bool,
 ) -> tuple[dict[str, Any], int]:
     results: list[dict[str, Any]] = []
     invalid_ids: list[int] = []
 
+    with get_db() as db:
+        refresh_proxy, _, refresh_proxy_source = resolve_proxy(
+            db,
+            settings,
+            behavior="token_refresh",
+            explicit_proxy=proxy,
+            proxy_id=proxy_id,
+        )
+        validate_proxy, _, validate_proxy_source = resolve_proxy(
+            db,
+            settings,
+            behavior="account_validate",
+            explicit_proxy=proxy,
+            proxy_id=proxy_id,
+        )
+
     for snapshot in snapshots:
         refresh_payload = None
         if refresh_before_validate:
-            refresh_result = refresh_account_token(snapshot["id"], proxy_url=proxy)
+            refresh_result = refresh_account_token(snapshot["id"], proxy_url=refresh_proxy)
             refresh_payload = {
                 "success": refresh_result.success,
                 "error": refresh_result.error_message or None,
                 "expires_at": refresh_result.expires_at.isoformat() if refresh_result.expires_at else None,
             }
 
-        valid, error = validate_account_token(snapshot["id"], proxy_url=proxy)
+        valid, error = validate_account_token(snapshot["id"], proxy_url=validate_proxy)
         status_after = STATUS_ACTIVE if valid else STATUS_EXPIRED
 
         with get_db() as db:
@@ -229,6 +282,10 @@ def _validate_snapshots(
     payload = {
         "summary": summary,
         "results": results,
+        "proxy": {
+            "token_refresh": {"url": refresh_proxy, "source": refresh_proxy_source},
+            "account_validate": {"url": validate_proxy, "source": validate_proxy_source},
+        },
     }
 
     if delete_invalid:
@@ -240,19 +297,24 @@ def _validate_snapshots(
 
 
 def _run_validation(args: argparse.Namespace, *, delete_invalid: bool) -> tuple[dict[str, Any], int]:
-    bootstrap_cli(database_url=args.database_url, log_level=None)
+    settings = bootstrap_cli(database_url=args.database_url, log_level=None)
     explicit_ids = resolve_explicit_account_ids(args.account_ids, args.account_ids_csv)
+    refresh_before_validate = (
+        settings.workflow.refresh_before_validate if args.refresh_before_validate is None else args.refresh_before_validate
+    )
     snapshots = _load_snapshots(
         explicit_ids=explicit_ids,
-        all_accounts=args.all,
+        all_accounts=_use_all_accounts_by_default(explicit_ids, args.all),
         status=args.status,
         search=args.search,
         limit=args.limit,
     )
     return _validate_snapshots(
         snapshots,
+        settings=settings,
         proxy=args.proxy,
-        refresh_before_validate=args.refresh_before_validate,
+        proxy_id=args.proxy_id,
+        refresh_before_validate=refresh_before_validate,
         delete_invalid=delete_invalid,
     )
 
@@ -280,8 +342,17 @@ def run_delete_invalid_accounts_command(args: argparse.Namespace) -> int:
     return exit_code
 
 
-def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
+def execute_ensure_target(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     settings = bootstrap_cli(database_url=args.database_url, log_level=args.log_level)
+
+    target_count = args.target_count or settings.workflow.target_account_count
+    refresh_before_validate = (
+        settings.workflow.refresh_before_validate if args.refresh_before_validate is None else args.refresh_before_validate
+    )
+    sync_cpa = settings.workflow.auto_sync_cpa if args.sync_cpa is None else args.sync_cpa
+    delete_invalid_accounts = (
+        settings.workflow.auto_delete_invalid if args.delete_invalid_accounts is None else args.delete_invalid_accounts
+    )
 
     validation_snapshots = _load_snapshots(
         explicit_ids=[],
@@ -292,25 +363,27 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
     )
     validation_payload, validation_exit_code = _validate_snapshots(
         validation_snapshots,
+        settings=settings,
         proxy=args.proxy,
-        refresh_before_validate=args.refresh_before_validate,
-        delete_invalid=True,
+        proxy_id=args.proxy_id,
+        refresh_before_validate=refresh_before_validate,
+        delete_invalid=delete_invalid_accounts,
     )
 
     available_count = validation_payload["summary"]["valid_count"]
-    target_count = args.target_count
     required_registrations = max(target_count - available_count, 0)
 
     registration_results: list[dict[str, Any]] = []
     attempted_count = 0
     successful_registrations = 0
-    max_attempts = args.max_attempts if args.max_attempts is not None else _default_max_attempts(required_registrations)
+    configured_max_attempts = args.max_attempts or settings.workflow.max_registration_attempts
+    max_attempts = configured_max_attempts if configured_max_attempts > 0 else _default_max_attempts(required_registrations)
 
-    service_config = None
+    service_config = {
+        **settings.registration.service_config,
+        **parse_service_config(args.service_config, args.service_config_file),
+    }
     if required_registrations > 0:
-        from ..registration import parse_service_config
-
-        service_config = parse_service_config(args.service_config, args.service_config_file)
         register_args = SimpleNamespace(
             database_url=args.database_url,
             log_level=args.log_level,
@@ -321,7 +394,7 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
             proxy_id=args.proxy_id,
             service_type=args.service_type,
             service_id=args.service_id,
-            no_save=False,
+            save_to_database=True,
             count=1,
             auto_upload_cpa=False,
             cpa_api_url=args.cpa_api_url,
@@ -347,7 +420,7 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
 
     cpa_sync = None
     cpa_exit_code = 0
-    if not args.skip_cpa_sync:
+    if sync_cpa:
         with get_db() as db:
             target = resolve_cpa_target(
                 db,
@@ -356,8 +429,15 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
                 api_token=args.cpa_api_token,
                 service_id=args.cpa_service_id,
             )
+            cpa_proxy, _, cpa_proxy_source = resolve_proxy(
+                db,
+                settings,
+                behavior="cpa_upload",
+                explicit_proxy=args.proxy,
+                proxy_id=args.proxy_id,
+            )
         validate_cpa_target(target)
-        batch_result = batch_upload_to_cpa(active_account_ids, api_url=target.api_url, api_token=target.api_token)
+        batch_result = batch_upload_to_cpa(active_account_ids, proxy=cpa_proxy, api_url=target.api_url, api_token=target.api_token)
         cpa_sync = {
             "success_count": batch_result["success_count"],
             "failed_count": batch_result["failed_count"],
@@ -368,6 +448,10 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
                 "service_id": target.service_id,
                 "service_name": target.name,
                 "api_url": target.api_url,
+            },
+            "proxy": {
+                "url": cpa_proxy,
+                "source": cpa_proxy_source,
             },
             "remote_delete_supported": False,
         }
@@ -388,8 +472,13 @@ def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
         "final_active_count": final_active_count,
         "cpa_sync": cpa_sync,
     }
-    emit_output(payload, args.output, _print_ensure_target_result)
 
     target_reached = final_active_count >= target_count
     exit_code = 0 if target_reached and validation_exit_code == 0 and cpa_exit_code == 0 else 1
+    return payload, exit_code
+
+
+def run_ensure_target_accounts_command(args: argparse.Namespace) -> int:
+    payload, exit_code = execute_ensure_target(args)
+    emit_output(payload, args.output, _print_ensure_target_result)
     return exit_code

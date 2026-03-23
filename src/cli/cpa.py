@@ -77,11 +77,12 @@ def resolve_cpa_target(
             service_id=None,
         )
 
-    if service_id is not None:
+    effective_service_id = service_id if service_id is not None else settings.defaults.cpa_service_id
+    if effective_service_id is not None:
         for service in settings.cpa_services:
-            if service.id == service_id:
+            if service.id == effective_service_id:
                 if not service.enabled:
-                    raise ValueError(f"cpa service id {service_id} is disabled")
+                    raise ValueError(f"cpa service id {effective_service_id} is disabled")
                 return ResolvedCpaTarget(
                     api_url=service.api_url,
                     api_token=service.api_token,
@@ -90,11 +91,11 @@ def resolve_cpa_target(
                     service_id=service.id,
                 )
 
-        service = crud.get_cpa_service_by_id(db, service_id)
+        service = crud.get_cpa_service_by_id(db, effective_service_id)
         if not service:
-            raise ValueError(f"cpa service id {service_id} was not found")
+            raise ValueError(f"cpa service id {effective_service_id} was not found")
         if not service.enabled:
-            raise ValueError(f"cpa service id {service_id} is disabled")
+            raise ValueError(f"cpa service id {effective_service_id} is disabled")
         return ResolvedCpaTarget(
             api_url=service.api_url,
             api_token=service.api_token,

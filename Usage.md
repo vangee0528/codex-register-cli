@@ -1,99 +1,176 @@
-# Usage
+﻿# 使用说明
 
-## Overview
+## 思路
 
-The project now uses a unified file-based configuration model.
+本项目现已转为配置优先：
 
-Primary entrypoint:
+1. 把日常默认值放在 `config.json` 中
+2. 仅在临时场景使用 CLI 参数作为覆盖
+3. 优先使用最简命令完成任务
 
-```bash
-python main.py <command>
-```
-
-Primary configuration file:
-
-```text
-config.json
-```
-
-Optional path overrides in `.env`:
-
-- `APP_CONFIG_PATH`
-- `APP_DATABASE_URL`
-- `DATABASE_URL`
-
-## Configuration Model
-
-Runtime configuration priority:
-
-1. CLI arguments
-2. `config.json`
-3. legacy database resource tables as fallback
-4. built-in defaults
-
-That means normal users should configure the project through `config.json` or the config UI, not by writing into database settings tables.
-
-## Config Commands
-
-Show the active config file:
+对大多数用户，日常命令是：
 
 ```bash
-python main.py config show --output json
+python main.py run
 ```
 
-Show the active config path:
+## 快速开始
+
+### 1. 准备运行时文件
 
 ```bash
-python main.py config path
+python main.py db init
 ```
 
-Launch the local config editor UI:
+### 2. 编辑配置
+
+选择下面之一：
 
 ```bash
 python main.py config ui
 ```
 
-Optional UI bind override:
+或直接编辑 `config.json`。
+
+### 3. 运行主流程
 
 ```bash
-python main.py config ui --host 127.0.0.1 --port 8765
+python main.py run
 ```
 
-## Config UI
+## 主流程
 
-Open the browser at:
+`python main.py run` 使用 `config.json` 执行以下操作：
 
-```text
-http://127.0.0.1:8765
+1. 校验当前数据库账号
+2. 可选：在验证之前刷新令牌
+3. 当配置允许时删除无效账号
+4. 统计可用有效账号数 
+5. 读取目标账号数 
+6. 注册账号使得有效账号数达到目标
+7. 如果某些注册失败，继续重试直到达成目标或耗尽配置尝试上限
+8. 可选：将活跃账号上传到 CPA
+
+## 命令集
+
+### 运行完整流程
+
+```bash
+python main.py run                    # 执行完整流程，使用 config.json 中的默认值
+python main.py run --target-count 20  # 执行完整流程，临时覆盖目标账号数为 20
+python main.py run --sync-cpa         # 执行完整流程，临时覆盖注册后自动上传 CPA 为 True
+python main.py run --no-sync-cpa      # 执行完整流程，临时覆盖注册后自动上传 CPA 为 False
+python main.py run --output json      # 执行完整流程，输出 JSON 格式结果
 ```
 
-The UI edits and saves `config.json` directly.
+可见参数：
 
-It currently covers:
+- `--target-count`：临时覆盖 `workflow.target_account_count`
+- `--refresh-before-validate` / `--no-refresh-before-validate`：临时覆盖 `workflow.refresh_before_validate`
+- `--sync-cpa` / `--no-sync-cpa`：临时覆盖 `workflow.auto_sync_cpa`
+- `--output {text,json}`
 
-- database path and logging
-- static proxy settings
-- Tempmail and custom-domain mail defaults
-- CPA settings
-- proxy pool JSON
-- email service JSON
-- CPA service JSON
+### 仅注册
 
-## `config.json` Structure
+```bash     
+python main.py register                    # 注册账号，使用 config.json 中的默认值
+python main.py register --count 5          # 注册账号，临时覆盖注册账号数为 5
+python main.py register --upload-cpa       # 注册账号，临时覆盖注册后自动上传 CPA 为 True
+python main.py register --no-upload-cpa    # 注册账号，临时覆盖注册后自动上传 CPA 为 False
+```
 
-Typical file skeleton:
+可见参数：
+
+- `--count`：临时覆盖 `registration.default_count`
+- `--upload-cpa` / `--no-upload-cpa`：临时覆盖 `registration.auto_upload_cpa`
+- `--output {text,json}`
+
+### 验证或清理账号
+
+```bash
+python main.py accounts validate                        # 验证账号有效性，使用 config.json 中的默认值
+python main.py accounts delete-invalid                  # 删除无效账号，使用 config.json 中的默认值
+python main.py accounts validate --account-ids 1,2,3    # 验证指定账号 ID 的有效性
+python main.py accounts delete-invalid --status active  # 删除状态为 active 的账号（谨慎使用）
+```
+
+行为说明：
+
+- 未指定账号 ID 时命令自动对全部匹配账号生效。
+- 令牌刷新与验证代理由 `proxy_policy` 控制。
+
+### CPA
+
+```bash
+python main.py cpa test                         # 测试 CPA 连接，使用 config.json 中的默认值
+python main.py cpa upload                       # 上传活跃账号到 CPA，使用 config.json 中的默认值
+python main.py cpa upload --only-not-uploaded   # 仅上传未曾上传过的活跃账号
+```
+
+行为说明：
+
+- 未指定账号 ID 时 `cpa upload` 默认对活跃账号执行。
+- CPA 代理使用由 `proxy_policy.cpa_upload` 与 `proxy_policy.cpa_test` 控制。
+
+### 配置
+
+```bash
+python main.py config path                # 输出配置文件路径
+python main.py config show --output json  # 输出当前配置，临时覆盖输出格式为 JSON（注意敏感信息泄露风险）
+python main.py config ui                  # 启动交互式配置 UI，修改后自动保存到 config.json
+```
+
+## `config.json` 结构
+
+推荐配置骨架：
 
 ```json
 {
-  "database_url": "data/database.db",
+  "database_url": "sqlite:///data/database.db",
   "log_level": "INFO",
+  "log_file": "logs/app.log",
+  "defaults": {
+    "email_service_type": "tempmail",
+    "email_service_id": null,
+    "proxy_id": null,
+    "cpa_service_id": null
+  },
+  "registration": {
+    "default_count": 1,
+    "auto_upload_cpa": false,
+    "save_to_database": true,
+    "service_config": {}
+  },
+  "workflow": {
+    "target_account_count": 10,
+    "refresh_before_validate": true,
+    "auto_delete_invalid": true,
+    "auto_sync_cpa": false,
+    "max_registration_attempts": 0
+  },
   "proxy_enabled": false,
   "proxy_type": "http",
   "proxy_host": "127.0.0.1",
   "proxy_port": 7890,
   "proxy_username": "",
   "proxy_password": "",
+  "proxy_policy": {
+    "registration": true,
+    "account_validate": true,
+    "token_refresh": true,
+    "cpa_upload": false,
+    "cpa_test": false
+  },
+  "proxy_dynamic": {
+    "enabled": false,
+    "api_url": "",
+    "api_key": "",
+    "api_key_header": "X-API-Key",
+    "result_field": ""
+  },
   "tempmail_base_url": "https://api.tempmail.lol/v2",
+  "tempmail_timeout": 30,
+  "tempmail_max_retries": 3,
   "custom_domain_base_url": "",
   "custom_domain_api_key": "",
   "cpa_enabled": false,
@@ -105,11 +182,23 @@ Typical file skeleton:
 }
 ```
 
-## How To Configure Proxy
+## 配置工作机制
 
-### Static global proxy
+优先级：
 
-Edit these fields in `config.json`:
+1. 临时 CLI 覆盖
+2. `config.json`
+3. 旧数据库资源表回退
+4. 内置默认值
+
+因此建议日常流程：
+
+1. 配置一次
+2. 重复执行简短命令
+
+## 代理配置
+
+### 静态代理
 
 ```json
 {
@@ -122,11 +211,7 @@ Edit these fields in `config.json`:
 }
 ```
 
-This becomes the default proxy when no CLI proxy override is passed.
-
-### Proxy pool
-
-Use the `proxies` array for multiple proxies:
+### 代理池
 
 ```json
 {
@@ -153,44 +238,90 @@ Use the `proxies` array for multiple proxies:
 }
 ```
 
-Usage examples:
+### 动态代理
 
-```bash
-python main.py register --proxy http://127.0.0.1:7890
-python main.py register --proxy-id 1
-python main.py accounts ensure-target --target-count 20 --proxy-id 2
+```json
+{
+  "proxy_dynamic": {
+    "enabled": true,
+    "api_url": "https://proxy.example.com/get",
+    "api_key": "YOUR_KEY",
+    "api_key_header": "X-API-Key",
+    "result_field": "data.proxy"
+  }
+}
 ```
 
-Resolution order:
+### 决定哪些行为使用代理
 
-1. `--proxy`
-2. `--proxy-id`
-3. static proxy from `config.json`
-4. enabled default proxy from `proxies`
-5. legacy database proxy fallback
-6. no proxy
+```json
+{
+  "proxy_policy": {
+    "registration": true,
+    "account_validate": true,
+    "token_refresh": true,
+    "cpa_upload": false,
+    "cpa_test": false
+  }
+}
+```
 
-## How To Configure Email
+含义：
 
-There are two levels.
+- `registration`：注册流程与邮箱服务请求使用代理解析
+- `account_validate`：账号有效性验证使用代理解析
+- `token_refresh`：刷新前验证使用代理解析
+- `cpa_upload`：CPA 上传使用代理解析
+- `cpa_test`：CPA 测试使用代理解析
 
-### Default built-in mail settings
+### 选择默认代理资源
 
-For default Tempmail and custom-domain mail:
+```json
+{
+  "defaults": {
+    "proxy_id": 1
+  }
+}
+```
+
+当行为可代理时，解析顺序：
+
+1. CLI 临时 `--proxy`
+2. CLI 临时 `--proxy-id`
+3. `defaults.proxy_id`
+4. `proxy_dynamic`
+5. 静态代理配置
+6. `proxies` 中启用代理
+7. 旧数据库代理回退
+8. 直连
+
+## 邮件配置
+
+### 内置 temp mail 默认
 
 ```json
 {
   "tempmail_base_url": "https://api.tempmail.lol/v2",
   "tempmail_timeout": 30,
-  "tempmail_max_retries": 3,
-  "custom_domain_base_url": "https://mail.example.com/api",
-  "custom_domain_api_key": "YOUR_KEY"
+  "tempmail_max_retries": 3
 }
 ```
 
-### Email service pool
+### 默认邮箱服务选择
 
-Use `email_services` to define reusable mail backends:
+```json
+{
+  "defaults": {
+    "email_service_type": "tempmail",
+    "email_service_id": null
+  }
+}
+```
+
+当你希望绑定到可复用服务记录时，使用 `email_service_id`。
+当你希望基于类型默认时，使用 `email_service_type`。
+
+### 可复用邮箱服务
 
 ```json
 {
@@ -222,25 +353,23 @@ Use `email_services` to define reusable mail backends:
 }
 ```
 
-Usage examples:
+### 注册专用内联默认
 
-```bash
-python main.py register --service-id 1
-python main.py register --service-type duck_mail
-python main.py accounts ensure-target --target-count 30 --service-id 2
+```json
+{
+  "registration": {
+    "service_config": {
+      "domain": "mail.example.com"
+    }
+  }
+}
 ```
 
-Resolution order:
+此值在运行前合并到解析后的邮件服务配置中。
 
-1. `--service-id`
-2. `--service-type`
-3. matching enabled service in `config.json.email_services`
-4. legacy database email service fallback
-5. built-in default config
+## CPA 配置
 
-## How To Configure CPA
-
-### Single CPA target
+### 单个默认 CPA 目标
 
 ```json
 {
@@ -250,7 +379,7 @@ Resolution order:
 }
 ```
 
-### Multiple CPA targets
+### 多个 CPA 目标
 
 ```json
 {
@@ -267,180 +396,120 @@ Resolution order:
 }
 ```
 
-Usage examples:
+### 选择默认 CPA 目标
+
+```json
+{
+  "defaults": {
+    "cpa_service_id": 1
+  }
+}
+```
+
+### 决定何时自动执行 CPA
+
+```json
+{
+  "registration": {
+    "auto_upload_cpa": false
+  },
+  "workflow": {
+    "auto_sync_cpa": true
+  }
+}
+```
+
+含义：
+
+- `registration.auto_upload_cpa`：每次 `register` 后立即上传
+- `workflow.auto_sync_cpa`：`run` 结束时上传所有活跃账号
+
+## 工作流默认设置
+
+推荐日常配置：
+
+```json
+{
+  "workflow": {
+    "target_account_count": 20,
+    "refresh_before_validate": true,
+    "auto_delete_invalid": true,
+    "auto_sync_cpa": true,
+    "max_registration_attempts": 60
+  },
+  "registration": {
+    "default_count": 1,
+    "auto_upload_cpa": false
+  }
+}
+```
+
+说明：
+
+- `max_registration_attempts=0` 表示使用内置自动重试上限。
+- `auto_delete_invalid=true` 让 `run` 真正清理数据库而不是仅标记无效。
+
+## 临时覆盖
+
+CLI 仍支持特殊场景的临时覆盖参数，非日常用法。
+
+常见高级覆盖：
+
+- `--proxy`
+- `--proxy-id`
+- `--service-id`
+- `--service-type`
+- `--service-config`
+- `--service-config-file`
+- `--cpa-service-id`
+- `--cpa-api-url`
+- `--cpa-api-token`
+- `--database-url`
+- `--log-level`
+
+示例：
 
 ```bash
-python main.py cpa test
-python main.py cpa upload --all --cpa-service-id 1
-python main.py register --auto-upload-cpa --cpa-api-url https://cpa.example.com/v0 --cpa-api-token YOUR_TOKEN
-```
-
-## Database Initialization
-
-```bash
-python main.py db init
-```
-
-With explicit database override:
-
-```bash
-python main.py db init --database-url sqlite:///./tmp/accounts.db
-```
-
-## Service Discovery
-
-```bash
-python main.py services list
-python main.py services list --output json
-python main.py services proxies --output json
-```
-
-These commands now show `config.json` resources first, with legacy database resources marked separately when present.
-
-## Registration
-
-### Syntax
-
-```bash
-python main.py register [options]
-```
-
-### Options
-
-```text
---service-type {tempmail,outlook,moe_mail,temp_mail,duck_mail,freemail,imap_mail}
---service-id ID
---service-config JSON
---service-config-file PATH
---proxy URL
---proxy-id ID
---database-url URL
---output {text,json}
---no-save
---log-level LEVEL
---count N
---auto-upload-cpa
---cpa-api-url URL
---cpa-api-token TOKEN
---cpa-service-id ID
-```
-
-Examples:
-
-```bash
-python main.py register --output json
-python main.py register --count 5 --output json
-python main.py register --service-id 1 --proxy-id 2
-python main.py register --service-config-file .\imap.json
-```
-
-## Account Management
-
-### accounts list
-
-```bash
-python main.py accounts list
-python main.py accounts list --status active --limit 50 --output json
-```
-
-### accounts validate
-
-```bash
-python main.py accounts validate --all --refresh-before-validate --output json
-python main.py accounts validate --account-ids 1,2,3 --proxy http://127.0.0.1:7890
-```
-
-Behavior:
-
-- valid accounts are marked `active`
-- invalid accounts are marked `expired`
-
-### accounts delete-invalid
-
-```bash
-python main.py accounts delete-invalid --all --status active --refresh-before-validate
-```
-
-Behavior:
-
-- invalid accounts are marked `expired`
-- invalid rows are deleted from the database
-
-### accounts ensure-target
-
-This is the one-shot workflow for maintaining a target number of valid accounts.
-
-Process:
-
-1. validate all stored accounts
-2. compute current valid count `a`
-3. take desired count `b`
-4. compute `b-a`
-5. delete invalid accounts
-6. register until the gap is closed
-7. if registration fails, continue retrying until the target is reached or `--max-attempts` is exhausted
-8. sync all active accounts to CPA
-
-Syntax:
-
-```bash
-python main.py accounts ensure-target --target-count B [options]
-```
-
-Options:
-
-```text
---target-count N
---refresh-before-validate
---proxy URL
---proxy-id ID
---service-type {tempmail,outlook,moe_mail,temp_mail,duck_mail,freemail,imap_mail}
---service-id ID
---service-config JSON
---service-config-file PATH
---log-level LEVEL
---max-attempts N
---skip-cpa-sync
---cpa-api-url URL
---cpa-api-token TOKEN
---cpa-service-id ID
---database-url URL
---output {text,json}
-```
-
-Examples:
-
-```bash
-python main.py accounts ensure-target --target-count 20 --refresh-before-validate --output json
-python main.py accounts ensure-target --target-count 50 --service-id 1 --proxy-id 2 --cpa-service-id 1 --output json
-python main.py accounts ensure-target --target-count 100 --max-attempts 150 --output json
-```
-
-Batch wrapper:
-
-```bat
-ensure_target_accounts.bat 20
-ensure_target_accounts.bat 50 --service-id 1 --proxy-id 2 --cpa-service-id 1
-```
-
-## CPA Operations
-
-### cpa test
-
-```bash
-python main.py cpa test
-python main.py cpa test --cpa-service-id 1 --output json
-```
-
-### cpa upload
-
-```bash
-python main.py cpa upload --all --status active --only-not-uploaded --output json
+python main.py run --target-count 50 --proxy http://127.0.0.1:7890
+python main.py register --count 3 --service-id 2
 python main.py cpa upload --account-ids 1,2,3 --cpa-service-id 1
 ```
 
-## Exit Codes
+## 一键批处理文件
 
-- `0`: requested command completed successfully
-- `1`: the command ran but a validation, registration, or upload step failed
-- `2`: CLI argument or runtime configuration error
+`ensure_target_accounts.bat` 现在直接转发到配置驱动流程：
+
+```bat
+ensure_target_accounts.bat
+ensure_target_accounts.bat --target-count 20
+ensure_target_accounts.bat --target-count 20 --sync-cpa
+```
+
+等效命令：
+
+```bash
+python main.py run [temporary overrides]
+```
+
+## 可选 `.env`
+
+`.env` 仍有价值，仅用于路径级运行时覆盖。
+
+支持字段：
+
+- `APP_CONFIG_PATH`
+- `APP_DATABASE_URL`
+- `DATABASE_URL`
+
+示例：
+
+```dotenv
+APP_CONFIG_PATH=H:\\CliProxy\\codex-console\\source_code\\config.json
+APP_DATABASE_URL=sqlite:///H:/CliProxy/codex-console/source_code/data/database.db
+```
+
+## 退出码
+
+- `0`：命令成功完成
+- `1`：命令运行完成，但验证/注册/上传未完全成功
+- `2`：CLI 参数或运行时配置错误

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config.constants import EmailServiceType
 from ..config.settings import Settings
+from ..core.dynamic_proxy import fetch_dynamic_proxy
 from ..database import crud
 from ..database.models import EmailService, Proxy
 
@@ -105,25 +106,41 @@ def _get_config_proxy_by_id(settings: Settings, proxy_id: int):
 def resolve_proxy(
     db: Session,
     settings: Settings,
+    *,
+    behavior: str = "registration",
     explicit_proxy: str | None = None,
     proxy_id: int | None = None,
 ) -> tuple[str | None, int | None, str]:
     if explicit_proxy:
         return explicit_proxy, None, "argument"
 
-    if proxy_id is not None:
-        config_proxy = _get_config_proxy_by_id(settings, proxy_id)
+    effective_proxy_id = proxy_id if proxy_id is not None else settings.defaults.proxy_id
+    if effective_proxy_id is not None:
+        config_proxy = _get_config_proxy_by_id(settings, effective_proxy_id)
         if config_proxy:
             if not config_proxy.enabled:
-                raise ValueError(f"proxy id {proxy_id} is disabled")
+                raise ValueError(f"proxy id {effective_proxy_id} is disabled")
             return config_proxy.resolved_url, config_proxy.id, "config-file-id"
 
-        db_proxy = crud.get_proxy_by_id(db, proxy_id)
+        db_proxy = crud.get_proxy_by_id(db, effective_proxy_id)
         if not db_proxy:
-            raise ValueError(f"proxy id {proxy_id} was not found")
+            raise ValueError(f"proxy id {effective_proxy_id} was not found")
         if not db_proxy.enabled:
-            raise ValueError(f"proxy id {proxy_id} is disabled")
+            raise ValueError(f"proxy id {effective_proxy_id} is disabled")
         return db_proxy.proxy_url, db_proxy.id, "database-id"
+
+    if not getattr(settings.proxy_policy, behavior, True):
+        return None, None, "config-policy-disabled"
+
+    if settings.proxy_dynamic.enabled and settings.proxy_dynamic.api_url:
+        proxy_url = fetch_dynamic_proxy(
+            api_url=settings.proxy_dynamic.api_url,
+            api_key=settings.proxy_dynamic.api_key.get_secret_value(),
+            api_key_header=settings.proxy_dynamic.api_key_header,
+            result_field=settings.proxy_dynamic.result_field,
+        )
+        if proxy_url:
+            return proxy_url, None, "config-dynamic"
 
     if settings.proxy_url:
         return settings.proxy_url, None, "config-file"
@@ -178,13 +195,14 @@ def resolve_email_service(
     inline_config: dict[str, Any],
     proxy_url: str | None,
 ) -> ResolvedEmailService:
-    requested_type = EmailServiceType(service_type_name or EmailServiceType.TEMPMAIL.value)
+    effective_service_id = service_id if service_id is not None else settings.defaults.email_service_id
+    requested_type = EmailServiceType(service_type_name or settings.defaults.email_service_type or EmailServiceType.TEMPMAIL.value)
 
-    if service_id is not None:
-        config_service = _get_config_service_by_id(settings, service_id)
+    if effective_service_id is not None:
+        config_service = _get_config_service_by_id(settings, effective_service_id)
         if config_service:
             if not config_service.enabled:
-                raise ValueError(f"email service id {service_id} is disabled")
+                raise ValueError(f"email service id {effective_service_id} is disabled")
             config_service_type = EmailServiceType(config_service.type)
             merged = {**config_service.config, **inline_config}
             return ResolvedEmailService(
@@ -195,11 +213,11 @@ def resolve_email_service(
                 service_id=config_service.id,
             )
 
-        db_service = crud.get_email_service_by_id(db, service_id)
+        db_service = crud.get_email_service_by_id(db, effective_service_id)
         if not db_service:
-            raise ValueError(f"email service id {service_id} was not found")
+            raise ValueError(f"email service id {effective_service_id} was not found")
         if not db_service.enabled:
-            raise ValueError(f"email service id {service_id} is disabled")
+            raise ValueError(f"email service id {effective_service_id} is disabled")
 
         db_service_type = EmailServiceType(db_service.service_type)
         merged = {**(db_service.config or {}), **inline_config}

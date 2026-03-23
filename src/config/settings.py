@@ -52,6 +52,44 @@ class CpaServiceResource(BaseModel):
     priority: int = 0
 
 
+class DefaultSelections(BaseModel):
+    email_service_type: str = "tempmail"
+    email_service_id: int | None = None
+    proxy_id: int | None = None
+    cpa_service_id: int | None = None
+
+
+class RegistrationDefaults(BaseModel):
+    default_count: int = Field(default=1, ge=1)
+    auto_upload_cpa: bool = False
+    save_to_database: bool = True
+    service_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowDefaults(BaseModel):
+    target_account_count: int = Field(default=10, ge=1)
+    refresh_before_validate: bool = True
+    auto_delete_invalid: bool = True
+    auto_sync_cpa: bool = False
+    max_registration_attempts: int = Field(default=0, ge=0)
+
+
+class ProxyPolicy(BaseModel):
+    registration: bool = True
+    account_validate: bool = True
+    token_refresh: bool = True
+    cpa_upload: bool = False
+    cpa_test: bool = False
+
+
+class DynamicProxySettings(BaseModel):
+    enabled: bool = False
+    api_url: str = ""
+    api_key: SecretStr = SecretStr("")
+    api_key_header: str = "X-API-Key"
+    result_field: str = ""
+
+
 class Settings(BaseModel):
     app_name: str = "OpenAI/Codex CLI registration system"
     app_version: str = "2.1.0"
@@ -92,6 +130,11 @@ class Settings(BaseModel):
     outlook_default_client_id: str = "24d9a0ed-8787-4584-883c-2fd79308940a"
     config_ui_host: str = "127.0.0.1"
     config_ui_port: int = 8765
+    defaults: DefaultSelections = Field(default_factory=DefaultSelections)
+    registration: RegistrationDefaults = Field(default_factory=RegistrationDefaults)
+    workflow: WorkflowDefaults = Field(default_factory=WorkflowDefaults)
+    proxy_policy: ProxyPolicy = Field(default_factory=ProxyPolicy)
+    proxy_dynamic: DynamicProxySettings = Field(default_factory=DynamicProxySettings)
     proxies: List[ProxyResource] = Field(default_factory=list)
     email_services: List[EmailServiceResource] = Field(default_factory=list)
     cpa_services: List[CpaServiceResource] = Field(default_factory=list)
@@ -149,7 +192,57 @@ def _settings_to_json_dict(settings: Settings) -> dict[str, Any]:
     data["proxy_password"] = settings.proxy_password.get_secret_value()
     data["custom_domain_api_key"] = settings.custom_domain_api_key.get_secret_value()
     data["cpa_api_token"] = settings.cpa_api_token.get_secret_value()
+    data["proxy_dynamic"]["api_key"] = settings.proxy_dynamic.api_key.get_secret_value()
     return data
+
+
+def _merge_defaults(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(raw)
+
+    defaults_section = normalized.get("defaults") or {}
+    normalized["defaults"] = {
+        "email_service_type": defaults_section.get("email_service_type") or "tempmail",
+        "email_service_id": defaults_section.get("email_service_id"),
+        "proxy_id": defaults_section.get("proxy_id"),
+        "cpa_service_id": defaults_section.get("cpa_service_id"),
+    }
+
+    registration_section = normalized.get("registration") or {}
+    normalized["registration"] = {
+        "default_count": registration_section.get("default_count", 1),
+        "auto_upload_cpa": registration_section.get("auto_upload_cpa", False),
+        "save_to_database": registration_section.get("save_to_database", True),
+        "service_config": registration_section.get("service_config") or {},
+    }
+
+    workflow_section = normalized.get("workflow") or {}
+    normalized["workflow"] = {
+        "target_account_count": workflow_section.get("target_account_count", 10),
+        "refresh_before_validate": workflow_section.get("refresh_before_validate", True),
+        "auto_delete_invalid": workflow_section.get("auto_delete_invalid", True),
+        "auto_sync_cpa": workflow_section.get("auto_sync_cpa", False),
+        "max_registration_attempts": workflow_section.get("max_registration_attempts", 0),
+    }
+
+    proxy_policy_section = normalized.get("proxy_policy") or {}
+    normalized["proxy_policy"] = {
+        "registration": proxy_policy_section.get("registration", True),
+        "account_validate": proxy_policy_section.get("account_validate", True),
+        "token_refresh": proxy_policy_section.get("token_refresh", True),
+        "cpa_upload": proxy_policy_section.get("cpa_upload", False),
+        "cpa_test": proxy_policy_section.get("cpa_test", False),
+    }
+
+    dynamic_section = normalized.get("proxy_dynamic") or {}
+    normalized["proxy_dynamic"] = {
+        "enabled": dynamic_section.get("enabled", False),
+        "api_url": dynamic_section.get("api_url", ""),
+        "api_key": dynamic_section.get("api_key", ""),
+        "api_key_header": dynamic_section.get("api_key_header", "X-API-Key"),
+        "result_field": dynamic_section.get("result_field", ""),
+    }
+
+    return normalized
 
 
 def init_default_settings() -> None:
@@ -168,7 +261,7 @@ def _load_settings_from_file() -> Settings:
     config_path = get_config_path()
     raw = json.loads(config_path.read_text(encoding="utf-8"))
     defaults = _settings_to_json_dict(_default_settings())
-    merged = {**defaults, **raw}
+    merged = _merge_defaults({**defaults, **raw})
 
     env_url = os.environ.get("APP_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if env_url:
