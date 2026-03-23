@@ -1,5 +1,5 @@
-"""
-数据库会话管理
+﻿"""
+鏁版嵁搴撲細璇濈鐞?
 """
 
 from contextlib import contextmanager
@@ -24,7 +24,7 @@ def _build_sqlalchemy_url(database_url: str) -> str:
 
 
 class DatabaseSessionManager:
-    """数据库会话管理器"""
+    """鏁版嵁搴撲細璇濈鐞嗗櫒"""
 
     def __init__(self, database_url: str = None):
         if database_url is None:
@@ -32,13 +32,13 @@ class DatabaseSessionManager:
             if env_url:
                 database_url = env_url
             else:
-                # 优先使用 APP_DATA_DIR 环境变量（PyInstaller 打包后由 webui.py 设置）
+                # 浼樺厛浣跨敤 APP_DATA_DIR 鐜鍙橀噺锛圥yInstaller 鎵撳寘鍚庣敱 main.py 璁剧疆锛?
                 data_dir = os.environ.get('APP_DATA_DIR') or os.path.join(
                     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                     'data'
                 )
                 db_path = os.path.join(data_dir, 'database.db')
-                # 确保目录存在
+                # 纭繚鐩綍瀛樺湪
                 os.makedirs(data_dir, exist_ok=True)
                 database_url = f"sqlite:///{db_path}"
 
@@ -46,17 +46,17 @@ class DatabaseSessionManager:
         self.engine = create_engine(
             self.database_url,
             connect_args={"check_same_thread": False} if self.database_url.startswith("sqlite") else {},
-            echo=False,  # 设置为 True 可以查看所有 SQL 语句
-            pool_pre_ping=True  # 连接池预检查
+            echo=False,  # 璁剧疆涓?True 鍙互鏌ョ湅鎵€鏈?SQL 璇彞
+            pool_pre_ping=True  # 杩炴帴姹犻妫€鏌?
         )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
     def get_db(self) -> Generator[Session, None, None]:
         """
-        获取数据库会话的上下文管理器
-        使用示例:
+        鑾峰彇鏁版嵁搴撲細璇濈殑涓婁笅鏂囩鐞嗗櫒
+        浣跨敤绀轰緥:
             with get_db() as db:
-                # 使用 db 进行数据库操作
+                # 浣跨敤 db 杩涜鏁版嵁搴撴搷浣?
                 pass
         """
         db = self.SessionLocal()
@@ -68,10 +68,10 @@ class DatabaseSessionManager:
     @contextmanager
     def session_scope(self) -> Generator[Session, None, None]:
         """
-        事务作用域上下文管理器
-        使用示例:
+        浜嬪姟浣滅敤鍩熶笂涓嬫枃绠＄悊鍣?
+        浣跨敤绀轰緥:
             with session_scope() as session:
-                # 数据库操作
+                # 鏁版嵁搴撴搷浣?
                 pass
         """
         session = self.SessionLocal()
@@ -85,25 +85,25 @@ class DatabaseSessionManager:
             session.close()
 
     def create_tables(self):
-        """创建所有表"""
+        """鍒涘缓鎵€鏈夎〃"""
         Base.metadata.create_all(bind=self.engine)
 
     def drop_tables(self):
-        """删除所有表（谨慎使用）"""
+        """鍒犻櫎鎵€鏈夎〃锛堣皑鎱庝娇鐢級"""
         Base.metadata.drop_all(bind=self.engine)
 
     def migrate_tables(self):
         """
-        数据库迁移 - 添加缺失的列
-        用于在不删除数据的情况下更新表结构
+        鏁版嵁搴撹縼绉?- 娣诲姞缂哄け鐨勫垪
+        鐢ㄤ簬鍦ㄤ笉鍒犻櫎鏁版嵁鐨勬儏鍐典笅鏇存柊琛ㄧ粨鏋?
         """
         if not self.database_url.startswith("sqlite"):
-            logger.info("非 SQLite 数据库，跳过自动迁移")
+            logger.info("闈?SQLite 鏁版嵁搴擄紝璺宠繃鑷姩杩佺Щ")
             return
 
-        # 需要检查和添加的新列
+        # 闇€瑕佹鏌ュ拰娣诲姞鐨勬柊鍒?
         migrations = [
-            # (表名, 列名, 列类型)
+            # (琛ㄥ悕, 鍒楀悕, 鍒楃被鍨?
             ("accounts", "cpa_uploaded", "BOOLEAN DEFAULT 0"),
             ("accounts", "cpa_uploaded_at", "DATETIME"),
             ("accounts", "source", "VARCHAR(20) DEFAULT 'register'"),
@@ -113,66 +113,66 @@ class DatabaseSessionManager:
             ("proxies", "is_default", "BOOLEAN DEFAULT 0"),
         ]
 
-        # 确保新表存在（create_tables 已处理，此处兜底）
+        # 纭繚鏂拌〃瀛樺湪锛坈reate_tables 宸插鐞嗭紝姝ゅ鍏滃簳锛?
         Base.metadata.create_all(bind=self.engine)
 
         with self.engine.connect() as conn:
-            # 数据迁移：将旧的 custom_domain 记录统一为 moe_mail
+            # 鏁版嵁杩佺Щ锛氬皢鏃х殑 custom_domain 璁板綍缁熶竴涓?moe_mail
             try:
                 conn.execute(text("UPDATE email_services SET service_type='moe_mail' WHERE service_type='custom_domain'"))
                 conn.execute(text("UPDATE accounts SET email_service='moe_mail' WHERE email_service='custom_domain'"))
                 conn.commit()
             except Exception as e:
-                logger.warning(f"迁移 custom_domain -> moe_mail 时出错: {e}")
+                logger.warning(f"杩佺Щ custom_domain -> moe_mail 鏃跺嚭閿? {e}")
 
             for table_name, column_name, column_type in migrations:
                 try:
-                    # 检查列是否存在
+                    # 妫€鏌ュ垪鏄惁瀛樺湪
                     result = conn.execute(text(
                         f"SELECT * FROM pragma_table_info('{table_name}') WHERE name='{column_name}'"
                     ))
                     if result.fetchone() is None:
-                        # 列不存在，添加它
-                        logger.info(f"添加列 {table_name}.{column_name}")
+                        # 鍒椾笉瀛樺湪锛屾坊鍔犲畠
+                        logger.info(f"娣诲姞鍒?{table_name}.{column_name}")
                         conn.execute(text(
                             f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
                         ))
                         conn.commit()
-                        logger.info(f"成功添加列 {table_name}.{column_name}")
+                        logger.info(f"鎴愬姛娣诲姞鍒?{table_name}.{column_name}")
                 except Exception as e:
-                    logger.warning(f"迁移列 {table_name}.{column_name} 时出错: {e}")
+                    logger.warning(f"杩佺Щ鍒?{table_name}.{column_name} 鏃跺嚭閿? {e}")
 
 
-# 全局数据库会话管理器实例
+# 鍏ㄥ眬鏁版嵁搴撲細璇濈鐞嗗櫒瀹炰緥
 _db_manager: DatabaseSessionManager = None
 
 
 def init_database(database_url: str = None) -> DatabaseSessionManager:
     """
-    初始化数据库会话管理器
+    鍒濆鍖栨暟鎹簱浼氳瘽绠＄悊鍣?
     """
     global _db_manager
     if _db_manager is None:
         _db_manager = DatabaseSessionManager(database_url)
         _db_manager.create_tables()
-        # 执行数据库迁移
+        # 鎵ц鏁版嵁搴撹縼绉?
         _db_manager.migrate_tables()
     return _db_manager
 
 
 def get_session_manager() -> DatabaseSessionManager:
     """
-    获取数据库会话管理器
+    鑾峰彇鏁版嵁搴撲細璇濈鐞嗗櫒
     """
     if _db_manager is None:
-        raise RuntimeError("数据库未初始化，请先调用 init_database()")
+        raise RuntimeError("鏁版嵁搴撴湭鍒濆鍖栵紝璇峰厛璋冪敤 init_database()")
     return _db_manager
 
 
 @contextmanager
 def get_db() -> Generator[Session, None, None]:
     """
-    获取数据库会话的快捷函数
+    鑾峰彇鏁版嵁搴撲細璇濈殑蹇嵎鍑芥暟
     """
     manager = get_session_manager()
     db = manager.SessionLocal()
@@ -180,3 +180,4 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+

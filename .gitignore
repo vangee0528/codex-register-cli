@@ -19,6 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+
 
 # Virtual Environment
 .venv/
@@ -56,3 +58,6 @@ Thumbs.db
 # Project specific
 backups/
 /out/
+
+#github
+.github/
