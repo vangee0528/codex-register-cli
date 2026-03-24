@@ -15,6 +15,7 @@
 - 校验已有账号状态，必要时刷新 token
 - 清理失效账号，并将账号池补齐到目标数量
 - 按配置把有效账号同步到 CPA 服务
+- 在清理失效账号时处理本地 CPA `json` 认证文件
 - 用本地 Web UI 编辑 `config.json`
 
 ## 核心思路
@@ -35,6 +36,7 @@
 1. 读取配置并初始化运行环境
 2. 校验数据库中的现有账号
 3. 按配置决定是否删除失效账号
+   如果启用了本地 CPA 文件清理，还会把对应账号的本地 `json` 文件移动到垃圾箱目录
 4. 统计当前有效账号数量
 5. 如果低于目标值，则继续注册新账号直到补齐或达到重试上限
 6. 如果开启了 CPA 自动同步，则上传有效账号
@@ -123,6 +125,13 @@ python main.py accounts delete-invalid
 python main.py cpa upload
 ```
 
+从本地 CPA `json` 文件同步账号到数据库：
+
+```bash
+python main.py cpa sync-local
+python main.py cpa sync-local --path C:\\Users\\wqchen\\.cli-proxy-api
+```
+
 查看当前配置：
 
 ```bash
@@ -158,16 +167,16 @@ http://127.0.0.1:8765
 config.json
 ```
 
-较重要的配置块：
+当前推荐按领域理解配置：
 
-- `defaults`：默认邮箱服务、代理、CPA 目标选择
-- `registration`：单次注册默认数量、是否自动上传、服务附加配置
-- `workflow`：目标账号数量、校验策略、清理策略、CPA 自动同步、最大尝试次数
-- `proxy_policy`：不同动作是否走代理
-- `proxy_dynamic`：动态代理 API 配置
-- `proxies`：配置文件中的代理池
-- `email_services`：配置文件中的邮箱服务池
-- `cpa_services`：配置文件中的 CPA 服务池
+- `runtime`：数据库、日志和运行期基础设置
+- `ui`：本地配置界面地址
+- `resources`：默认资源选择，以及代理池 / 邮箱服务池 / CPA 服务池
+- `registration`：单次注册默认值和附加服务配置
+- `workflow`：目标账号数、校验、自动清理、自动同步和重试上限
+- `proxy`：静态代理、动态代理和代理策略
+- `mail`：tempmail、自定义域名邮箱、验证码轮询、Outlook 参数
+- `cpa`：CPA 远端接口和本地认证文件清理目录
 
 ### `.env`
 
@@ -229,13 +238,20 @@ python main.py accounts delete-invalid
 python main.py accounts ensure-target
 ```
 
+当执行 `python main.py accounts delete-invalid` 或 `python main.py run` 且启用了自动清理时：
+
+- 数据库中的失效账号会被删除
+- 如果 `cpa.local_files.enabled=true`，系统会尝试在 `cpa.local_files.path` 下找到同名 `email.json`
+- 找到后会移动到 `cpa.local_files.trash_dir`，未配置垃圾箱目录时默认移动到 `_trash`
+
 ### `cpa`
 
-用于测试 CPA 连通性和上传账号。
+用于测试 CPA 连通性、上传账号，以及把本地 CPA `json` 文件回灌到数据库。
 
 ```bash
 python main.py cpa test
 python main.py cpa upload --all --only-not-uploaded
+python main.py cpa sync-local
 ```
 
 ### `services`
@@ -258,6 +274,7 @@ python main.py services proxies
 ## 注意事项
 
 - `config.json` 是默认行为的中心，建议优先改配置，不要把日常参数长期堆在命令行里
+- 新版配置已经按领域分块，建议优先从 `workflow`、`resources`、`proxy`、`cpa` 这几组开始
 - 代理、邮箱服务和 CPA 服务既可以来自 `config.json`，也可能来自旧数据库记录，排查时建议先看 `services` 命令输出
 - 账号数据、token、会话信息会落库，部署和使用时需要自行做好访问控制和密钥管理
 - 本项目包含对外部服务的请求流程，实际使用前应确认目标环境、账号策略和相关合规要求

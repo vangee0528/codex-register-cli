@@ -178,7 +178,7 @@ class RegistrationEngine:
     def _create_email(self) -> bool:
         """创建邮箱"""
         try:
-            self._log(f"正在创建 {self.email_service.service_type.value} 邮箱，先给新账号整个收件箱...")
+            self._log(f"正在创建 {self.email_service.service_type.value} 邮箱")
             self.email_info = self.email_service.create_email()
 
             if not self.email_info or "email" not in self.email_info:
@@ -186,7 +186,7 @@ class RegistrationEngine:
                 return False
 
             self.email = self.email_info["email"]
-            self._log(f"邮箱已就位，地址新鲜出炉: {self.email}")
+            self._log(f"邮箱创建成功: {self.email}")
             return True
 
         except Exception as e:
@@ -196,9 +196,9 @@ class RegistrationEngine:
     def _start_oauth(self) -> bool:
         """开始 OAuth 流程"""
         try:
-            self._log("开始 OAuth 授权流程，去门口刷个脸...")
+            self._log("开始 OAuth 授权流程")
             self.oauth_start = self.oauth_manager.start_oauth()
-            self._log(f"OAuth URL 已备好，通道已经打开: {self.oauth_start.auth_url[:80]}...")
+            self._log(f"OAuth URL 已生成: {self.oauth_start.auth_url[:80]}...")
             return True
         except Exception as e:
             self._log(f"生成 OAuth URL 失败: {e}", "error")
@@ -331,10 +331,10 @@ class RegistrationEngine:
                 if is_existing:
                     self._otp_sent_at = time.time()
                     if record_existing_account:
-                        self._log(f"检测到已注册账号，将自动切换到登录流程")
+                        self._log("检测到已注册账号，将切换到登录流程")
                         self._is_existing_account = True
                     else:
-                        self._log("登录流程已触发，等待系统自动发送的验证码")
+                        self._log("登录流程已触发，等待系统发送验证码")
 
                 return SignupFormResult(
                     success=True,
@@ -408,7 +408,7 @@ class RegistrationEngine:
             is_existing = page_type == OPENAI_PAGE_TYPES["EMAIL_OTP_VERIFICATION"]
             if is_existing:
                 self._otp_sent_at = time.time()
-                self._log("登录密码校验通过，等待系统自动发送的验证码")
+                self._log("登录密码校验通过，等待系统发送验证码")
 
             return SignupFormResult(
                 success=True,
@@ -431,41 +431,41 @@ class RegistrationEngine:
 
     def _prepare_authorize_flow(self, label: str) -> Tuple[Optional[str], Optional[str]]:
         """初始化当前阶段的授权流程，返回 device id 和 sentinel token。"""
-        self._log(f"{label}: 先把会话热热身...")
+        self._log(f"{label}: 初始化会话")
         if not self._init_session():
             return None, None
 
-        self._log(f"{label}: OAuth 流程准备开跑，系好鞋带...")
+        self._log(f"{label}: 启动 OAuth 流程")
         if not self._start_oauth():
             return None, None
 
-        self._log(f"{label}: 领取 Device ID 通行证...")
+        self._log(f"{label}: 获取 Device ID")
         did = self._get_device_id()
         if not did:
             return None, None
 
-        self._log(f"{label}: 解一道 Sentinel POW 小题，答对才给进...")
+        self._log(f"{label}: 执行 Sentinel 校验")
         sen_token = self._check_sentinel(did)
         if not sen_token:
             return did, None
 
-        self._log(f"{label}: Sentinel 点头放行，继续前进")
+        self._log(f"{label}: Sentinel 校验通过")
         return did, sen_token
 
     def _complete_token_exchange(self, result: RegistrationResult) -> bool:
         """在登录态已建立后，继续完成 workspace 和 OAuth token 获取。"""
-        self._log("等待登录验证码到场，最后这位嘉宾还在路上...")
+        self._log("等待登录验证码")
         code = self._get_verification_code()
         if not code:
             result.error_message = "获取验证码失败"
             return False
 
-        self._log("核对登录验证码，验明正身一下...")
+        self._log("校验登录验证码")
         if not self._validate_verification_code(code):
             result.error_message = "验证码校验失败"
             return False
 
-        self._log("摸一下 Workspace ID，看看该坐哪桌...")
+        self._log("获取 Workspace ID")
         workspace_id = self._get_workspace_id()
         if not workspace_id:
             result.error_message = "获取 Workspace ID 失败"
@@ -473,19 +473,19 @@ class RegistrationEngine:
 
         result.workspace_id = workspace_id
 
-        self._log("选择 Workspace，安排个靠谱座位...")
+        self._log("选择 Workspace")
         continue_url = self._select_workspace(workspace_id)
         if not continue_url:
             result.error_message = "选择 Workspace 失败"
             return False
 
-        self._log("顺着重定向面包屑往前走，别跟丢了...")
+        self._log("跟随重定向链")
         callback_url = self._follow_redirects(continue_url)
         if not callback_url:
             result.error_message = "跟随重定向链失败"
             return False
 
-        self._log("处理 OAuth 回调，准备把 token 请出来...")
+        self._log("处理 OAuth 回调并交换 token")
         token_info = self._handle_oauth_callback(callback_url)
         if not token_info:
             result.error_message = "处理 OAuth 回调失败"
@@ -502,14 +502,14 @@ class RegistrationEngine:
         if session_cookie:
             self.session_token = session_cookie
             result.session_token = session_cookie
-            self._log("Session Token 也捞到了，今天这网没白连")
+            self._log("已获取 Session Token")
 
         return True
 
     def _restart_login_flow(self) -> Tuple[bool, str]:
         """新注册账号完成建号后，重新发起一次登录流程拿 token。"""
         self._token_acquisition_requires_login = True
-        self._log("注册这边忙完了，再走一趟登录把 token 请出来，收个尾...")
+        self._log("注册完成，开始执行登录流程以获取 token")
         self._reset_auth_flow()
 
         did, sen_token = self._prepare_authorize_flow("重新登录")
@@ -537,7 +537,7 @@ class RegistrationEngine:
             # 生成密码
             password = self._generate_password()
             self.password = password  # 保存密码到实例变量
-            self._log(f"生成密码: {password}")
+            self._log("已生成注册密码")
 
             # 提交密码注册
             register_body = json.dumps({
@@ -569,7 +569,7 @@ class RegistrationEngine:
 
                     # 检测邮箱已注册的情况
                     if "already" in error_msg.lower() or "exists" in error_msg.lower() or error_code == "user_exists":
-                        self._log(f"邮箱 {self.email} 可能已在 OpenAI 注册过", "error")
+                        self._log(f"邮箱 {self.email} 已存在，标记为已注册账号", "error")
                         # 标记此邮箱为已注册状态
                         self._mark_email_as_registered()
                 except Exception:
@@ -600,7 +600,7 @@ class RegistrationEngine:
                         status="failed",
                         extra_data={"register_failed_reason": "email_already_registered_on_openai"}
                     )
-                    self._log(f"已在数据库中标记邮箱 {self.email} 为已注册状态")
+                    self._log(f"已在数据库中记录邮箱 {self.email} 为已注册状态")
         except Exception as e:
             logger.warning(f"标记邮箱状态失败: {e}")
 
@@ -628,7 +628,7 @@ class RegistrationEngine:
     def _get_verification_code(self) -> Optional[str]:
         """获取验证码"""
         try:
-            self._log(f"正在等待邮箱 {self.email} 的验证码...")
+            self._log(f"正在等待邮箱 {self.email} 的验证码")
 
             email_id = self.email_info.get("service_id") if self.email_info else None
             code = self.email_service.get_verification_code(
@@ -640,7 +640,7 @@ class RegistrationEngine:
             )
 
             if code:
-                self._log(f"成功获取验证码: {code}")
+                self._log("验证码获取成功")
                 return code
             else:
                 self._log("等待验证码超时", "error")
@@ -676,7 +676,7 @@ class RegistrationEngine:
         """创建用户账户"""
         try:
             user_info = generate_random_user_info()
-            self._log(f"生成用户信息: {user_info['name']}, 生日: {user_info['birthdate']}")
+            self._log("已生成用户资料")
             create_account_body = json.dumps(user_info)
 
             response = self.session.post(
@@ -828,14 +828,14 @@ class RegistrationEngine:
                 self._log("OAuth 流程未初始化", "error")
                 return None
 
-            self._log("处理 OAuth 回调，最后一哆嗦，稳住别抖...")
+            self._log("开始处理 OAuth 回调")
             token_info = self.oauth_manager.handle_callback(
                 callback_url=callback_url,
                 expected_state=self.oauth_start.state,
                 code_verifier=self.oauth_start.code_verifier
             )
 
-            self._log("OAuth 授权成功，通关文牒到手")
+            self._log("OAuth 授权成功")
             return token_info
 
         except Exception as e:
@@ -862,11 +862,11 @@ class RegistrationEngine:
             self._otp_sent_at = None
 
             self._log("=" * 60)
-            self._log("注册流程启动，开始替你敲门")
+            self._log("注册流程开始")
             self._log("=" * 60)
 
             # 1. 检查 IP 地理位置
-            self._log("1. 先看看这条网络从哪儿来，别一开局就站错片场...")
+            self._log("步骤 1/9: 检查网络出口位置")
             ip_ok, location = self._check_ip_location()
             if not ip_ok:
                 result.error_message = f"IP 地理位置不支持: {location}"
@@ -876,7 +876,7 @@ class RegistrationEngine:
             self._log(f"IP 位置: {location}")
 
             # 2. 创建邮箱
-            self._log("2. 开个新邮箱，准备收信...")
+            self._log("步骤 2/9: 创建邮箱")
             if not self._create_email():
                 result.error_message = "创建邮箱失败"
                 return result
@@ -884,6 +884,7 @@ class RegistrationEngine:
             result.email = self.email
 
             # 3. 准备首轮授权流程
+            self._log("步骤 3/9: 初始化授权上下文")
             did, sen_token = self._prepare_authorize_flow("首次授权")
             if not did:
                 result.error_message = "获取 Device ID 失败"
@@ -893,38 +894,38 @@ class RegistrationEngine:
                 return result
 
             # 4. 提交注册入口邮箱
-            self._log("4. 递上邮箱，看看 OpenAI 这球怎么接...")
+            self._log("步骤 4/9: 提交邮箱并进入授权流程")
             signup_result = self._submit_signup_form(did, sen_token)
             if not signup_result.success:
                 result.error_message = f"提交注册表单失败: {signup_result.error_message}"
                 return result
 
             if self._is_existing_account:
-                self._log("检测到这是老朋友账号，直接切去登录拿 token，不走弯路")
+                self._log("检测到已注册账号，切换到登录流程获取 token")
             else:
-                self._log("5. 设置密码，别让小偷偷笑...")
+                self._log("步骤 5/9: 设置注册密码")
                 password_ok, _ = self._register_password()
                 if not password_ok:
                     result.error_message = "注册密码失败"
                     return result
 
-                self._log("6. 催一下注册验证码出门，邮差该冲刺了...")
+                self._log("步骤 6/9: 发送注册验证码")
                 if not self._send_verification_code():
                     result.error_message = "发送验证码失败"
                     return result
 
-                self._log("7. 等验证码飞来，邮箱请注意查收...")
+                self._log("步骤 7/9: 等待并读取验证码")
                 code = self._get_verification_code()
                 if not code:
                     result.error_message = "获取验证码失败"
                     return result
 
-                self._log("8. 对一下验证码，看看是不是本人...")
+                self._log("步骤 8/9: 校验验证码")
                 if not self._validate_verification_code(code):
                     result.error_message = "验证验证码失败"
                     return result
 
-                self._log("9. 给账号办个正式户口，名字写档案里...")
+                self._log("步骤 9/9: 创建账户资料")
                 if not self._create_user_account():
                     result.error_message = "创建用户账户失败"
                     return result
@@ -937,12 +938,12 @@ class RegistrationEngine:
             if not self._complete_token_exchange(result):
                 return result
 
-            # 10. 完成
+            # 完成
             self._log("=" * 60)
             if self._is_existing_account:
-                self._log("登录成功，老朋友顺利回家")
+                self._log("登录成功")
             else:
-                self._log("注册成功，账号已经稳稳落地，可以开香槟了")
+                self._log("注册成功")
             self._log(f"邮箱: {result.email}")
             self._log(f"Account ID: {result.account_id}")
             self._log(f"Workspace ID: {result.workspace_id}")
@@ -1001,7 +1002,7 @@ class RegistrationEngine:
                     source=result.source
                 )
 
-                self._log(f"账户已存进数据库，落袋为安，ID: {account.id}")
+                self._log(f"账户已保存到数据库，ID: {account.id}")
                 return True
 
         except Exception as e:

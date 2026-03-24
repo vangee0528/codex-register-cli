@@ -97,7 +97,8 @@ python main.py accounts delete-invalid --status active  # 删除状态为 active
 行为说明：
 
 - 未指定账号 ID 时命令自动对全部匹配账号生效。
-- 令牌刷新与验证代理由 `proxy_policy` 控制。
+- 令牌刷新与验证代理由 `proxy.policy` 控制。
+- 当执行 `delete-invalid` 且 `cpa.local_files.enabled=true` 时，会尝试把本地 CPA 目录里的对应 `email.json` 移动到垃圾箱目录。
 
 ### CPA
 
@@ -105,12 +106,15 @@ python main.py accounts delete-invalid --status active  # 删除状态为 active
 python main.py cpa test                         # 测试 CPA 连接，使用 config.json 中的默认值
 python main.py cpa upload                       # 上传活跃账号到 CPA，使用 config.json 中的默认值
 python main.py cpa upload --only-not-uploaded   # 仅上传未曾上传过的活跃账号
+python main.py cpa sync-local                   # 从本地 CPA json 文件同步账号到数据库
+python main.py cpa sync-local --path C:\\Users\\.cli-proxy-api
 ```
 
 行为说明：
 
 - 未指定账号 ID 时 `cpa upload` 默认对活跃账号执行。
-- CPA 代理使用由 `proxy_policy.cpa_upload` 与 `proxy_policy.cpa_test` 控制。
+- CPA 代理使用由 `proxy.policy.cpa_upload` 与 `proxy.policy.cpa_test` 控制。
+- `cpa sync-local` 会读取 `cpa.local_files.path` 或 `--path` 指定目录下的 `*.json` 文件，并按邮箱创建或更新数据库账号记录。
 
 ### 配置
 
@@ -126,14 +130,31 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "database_url": "sqlite:///data/database.db",
-  "log_level": "INFO",
-  "log_file": "logs/app.log",
-  "defaults": {
-    "email_service_type": "tempmail",
-    "email_service_id": null,
-    "proxy_id": null,
-    "cpa_service_id": null
+  "app": {
+    "name": "Codex CLI registration system",
+    "version": "2.2.0",
+    "debug": false
+  },
+  "runtime": {
+    "database_url": "sqlite:///data/database.db",
+    "log_level": "INFO",
+    "log_file": "logs/app.log",
+    "log_retention_days": 30
+  },
+  "ui": {
+    "host": "127.0.0.1",
+    "port": 8765
+  },
+  "resources": {
+    "defaults": {
+      "email_service_type": "tempmail",
+      "email_service_id": null,
+      "proxy_id": null,
+      "cpa_service_id": null
+    },
+    "proxies": [],
+    "email_services": [],
+    "cpa_services": []
   },
   "registration": {
     "default_count": 1,
@@ -148,37 +169,65 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
     "auto_sync_cpa": false,
     "max_registration_attempts": 0
   },
-  "proxy_enabled": false,
-  "proxy_type": "http",
-  "proxy_host": "127.0.0.1",
-  "proxy_port": 7890,
-  "proxy_username": "",
-  "proxy_password": "",
-  "proxy_policy": {
-    "registration": true,
-    "account_validate": true,
-    "token_refresh": true,
-    "cpa_upload": false,
-    "cpa_test": false
+  "proxy": {
+    "static": {
+      "enabled": false,
+      "type": "http",
+      "host": "127.0.0.1",
+      "port": 7890,
+      "username": "",
+      "password": ""
+    },
+    "policy": {
+      "registration": true,
+      "account_validate": true,
+      "token_refresh": true,
+      "cpa_upload": false,
+      "cpa_test": false
+    },
+    "dynamic": {
+      "enabled": false,
+      "api_url": "",
+      "api_key": "",
+      "api_key_header": "X-API-Key",
+      "result_field": ""
+    }
   },
-  "proxy_dynamic": {
+  "mail": {
+    "tempmail": {
+      "base_url": "https://api.tempmail.lol/v2",
+      "timeout": 30,
+      "max_retries": 3
+    },
+    "custom_domain": {
+      "base_url": "",
+      "api_key": ""
+    },
+    "verification": {
+      "code_timeout": 120,
+      "code_poll_interval": 3
+    },
+    "outlook": {
+      "provider_priority": [
+        "imap_old",
+        "imap_new",
+        "graph_api"
+      ],
+      "health_failure_threshold": 5,
+      "health_disable_duration": 60,
+      "default_client_id": "24d9a0ed-8787-4584-883c-2fd79308940a"
+    }
+  },
+  "cpa": {
     "enabled": false,
     "api_url": "",
-    "api_key": "",
-    "api_key_header": "X-API-Key",
-    "result_field": ""
-  },
-  "tempmail_base_url": "https://api.tempmail.lol/v2",
-  "tempmail_timeout": 30,
-  "tempmail_max_retries": 3,
-  "custom_domain_base_url": "",
-  "custom_domain_api_key": "",
-  "cpa_enabled": false,
-  "cpa_api_url": "",
-  "cpa_api_token": "",
-  "proxies": [],
-  "email_services": [],
-  "cpa_services": []
+    "api_token": "",
+    "local_files": {
+      "enabled": false,
+      "path": "~/.cli-proxy-api",
+      "trash_dir": ""
+    }
+  }
 }
 ```
 
@@ -202,12 +251,16 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "proxy_enabled": true,
-  "proxy_type": "http",
-  "proxy_host": "127.0.0.1",
-  "proxy_port": 7890,
-  "proxy_username": "",
-  "proxy_password": ""
+  "proxy": {
+    "static": {
+      "enabled": true,
+      "type": "http",
+      "host": "127.0.0.1",
+      "port": 7890,
+      "username": "",
+      "password": ""
+    }
+  }
 }
 ```
 
@@ -215,7 +268,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "proxies": [
+  "resources": {
+    "proxies": [
     {
       "id": 1,
       "name": "default-http",
@@ -234,7 +288,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
       "username": "",
       "password": ""
     }
-  ]
+    ]
+  }
 }
 ```
 
@@ -242,12 +297,14 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "proxy_dynamic": {
-    "enabled": true,
-    "api_url": "https://proxy.example.com/get",
-    "api_key": "YOUR_KEY",
-    "api_key_header": "X-API-Key",
-    "result_field": "data.proxy"
+  "proxy": {
+    "dynamic": {
+      "enabled": true,
+      "api_url": "https://proxy.example.com/get",
+      "api_key": "YOUR_KEY",
+      "api_key_header": "X-API-Key",
+      "result_field": "data.proxy"
+    }
   }
 }
 ```
@@ -256,12 +313,14 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "proxy_policy": {
-    "registration": true,
-    "account_validate": true,
-    "token_refresh": true,
-    "cpa_upload": false,
-    "cpa_test": false
+  "proxy": {
+    "policy": {
+      "registration": true,
+      "account_validate": true,
+      "token_refresh": true,
+      "cpa_upload": false,
+      "cpa_test": false
+    }
   }
 }
 ```
@@ -278,8 +337,10 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "defaults": {
-    "proxy_id": 1
+  "resources": {
+    "defaults": {
+      "proxy_id": 1
+    }
   }
 }
 ```
@@ -288,10 +349,10 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 1. CLI 临时 `--proxy`
 2. CLI 临时 `--proxy-id`
-3. `defaults.proxy_id`
-4. `proxy_dynamic`
+3. `resources.defaults.proxy_id`
+4. `proxy.dynamic`
 5. 静态代理配置
-6. `proxies` 中启用代理
+6. `resources.proxies` 中启用代理
 7. 旧数据库代理回退
 8. 直连
 
@@ -301,9 +362,13 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "tempmail_base_url": "https://api.tempmail.lol/v2",
-  "tempmail_timeout": 30,
-  "tempmail_max_retries": 3
+  "mail": {
+    "tempmail": {
+      "base_url": "https://api.tempmail.lol/v2",
+      "timeout": 30,
+      "max_retries": 3
+    }
+  }
 }
 ```
 
@@ -311,9 +376,11 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "defaults": {
-    "email_service_type": "tempmail",
-    "email_service_id": null
+  "resources": {
+    "defaults": {
+      "email_service_type": "tempmail",
+      "email_service_id": null
+    }
   }
 }
 ```
@@ -325,7 +392,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "email_services": [
+  "resources": {
+    "email_services": [
     {
       "id": 1,
       "name": "imap-main",
@@ -349,7 +417,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
         "default_domain": "mail.example.com"
       }
     }
-  ]
+    ]
+  }
 }
 ```
 
@@ -373,9 +442,11 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "cpa_enabled": true,
-  "cpa_api_url": "https://cpa.example.com/v0",
-  "cpa_api_token": "YOUR_TOKEN"
+  "cpa": {
+    "enabled": true,
+    "api_url": "https://cpa.example.com/v0",
+    "api_token": "YOUR_TOKEN"
+  }
 }
 ```
 
@@ -383,7 +454,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "cpa_services": [
+  "resources": {
+    "cpa_services": [
     {
       "id": 1,
       "name": "primary",
@@ -392,7 +464,8 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
       "enabled": true,
       "priority": 0
     }
-  ]
+    ]
+  }
 }
 ```
 
@@ -400,8 +473,10 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 ```json
 {
-  "defaults": {
-    "cpa_service_id": 1
+  "resources": {
+    "defaults": {
+      "cpa_service_id": 1
+    }
   }
 }
 ```
@@ -423,6 +498,27 @@ python main.py config ui                  # 启动交互式配置 UI，修改后
 
 - `registration.auto_upload_cpa`：每次 `register` 后立即上传
 - `workflow.auto_sync_cpa`：`run` 结束时上传所有活跃账号
+
+### 清理本地 CPA 认证文件
+
+```json
+{
+  "cpa": {
+    "local_files": {
+      "enabled": true,
+      "path": "C:\\Users\\wqchen\\.cli-proxy-api",
+      "trash_dir": "C:\\Users\\wqchen\\.cli-proxy-api\\_trash"
+    }
+  }
+}
+```
+
+说明：
+
+- `path` 支持填写目录，也支持直接填写某个 `email.json` 文件路径，系统会自动取其父目录。
+- 当执行 `accounts delete-invalid` 或 `run` 里的自动清理逻辑时，会尝试把失效账号对应的本地 `json` 文件移入垃圾箱目录。
+- 垃圾箱目录留空时，默认使用 `path/_trash`。
+- 当执行 `python main.py cpa sync-local` 时，会从同一目录读取本地 `json` 文件，将其中的账号同步进数据库。
 
 ## 工作流默认设置
 

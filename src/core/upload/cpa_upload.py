@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
@@ -12,10 +14,13 @@ from curl_cffi import CurlMime
 from curl_cffi import requests as cffi_requests
 
 from ...config.settings import get_settings
+from ...database import crud
 from ...database.models import Account
 from ...database.session import get_db
 
 logger = logging.getLogger(__name__)
+LOCAL_CPA_SYNC_SOURCE = "cpa_sync"
+LOCAL_CPA_EMAIL_SERVICE = "cpa_local"
 
 
 def _normalize_cpa_auth_files_url(api_url: str) -> str:
@@ -111,6 +116,319 @@ def generate_token_json(account: Account) -> dict[str, Any]:
         "last_refresh": account.last_refresh.strftime("%Y-%m-%dT%H:%M:%S+08:00") if account.last_refresh else "",
         "refresh_token": account.refresh_token or "",
     }
+
+
+def _resolve_local_cpa_base_dir(settings) -> Path | None:
+    local_files = settings.cpa.local_files
+    if not local_files.enabled:
+        return None
+
+    raw_path = (local_files.path or "").strip()
+    if not raw_path:
+        return None
+
+    candidate = Path(raw_path).expanduser()
+    if candidate.suffix.lower() == ".json":
+        return candidate.parent
+    return candidate
+
+
+def _resolve_local_cpa_source_path(path_value: str | None, settings) -> Path | None:
+    raw_path = (path_value or settings.cpa.local_files.path or "").strip()
+    if not raw_path:
+        return None
+    return Path(raw_path).expanduser()
+
+
+def _resolve_local_cpa_trash_dir(base_dir: Path, settings) -> Path:
+    configured = (settings.cpa.local_files.trash_dir or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return base_dir / "_trash"
+
+
+def _find_local_cpa_auth_files(base_dir: Path, email: str) -> list[Path]:
+    expected_name = f"{email}.json"
+    direct_match = base_dir / expected_name
+    if direct_match.exists():
+        return [direct_match]
+
+    if not base_dir.exists() or not base_dir.is_dir():
+        return []
+
+    expected_lower = expected_name.lower()
+    return [
+        candidate
+        for candidate in base_dir.glob("*.json")
+        if candidate.name.lower() == expected_lower
+    ]
+
+
+def list_local_cpa_auth_files(path_value: str | None, settings) -> tuple[list[Path], str | None]:
+    source_path = _resolve_local_cpa_source_path(path_value, settings)
+    if source_path is None:
+        return [], "local CPA path is not configured"
+
+    if source_path.suffix.lower() == ".json":
+        if not source_path.exists() or not source_path.is_file():
+            return [], f"local CPA file not found: {source_path}"
+        return [source_path], None
+
+    if not source_path.exists() or not source_path.is_dir():
+        return [], f"local CPA directory not found: {source_path}"
+
+    return sorted(source_path.glob("*.json")), None
+
+
+def _parse_cpa_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _normalize_local_cpa_email(payload: dict[str, Any], file_path: Path) -> str:
+    email = str(payload.get("email") or "").strip()
+    if email:
+        return email
+    return file_path.stem.strip()
+
+
+def _account_status_from_expiration(expires_at: datetime | None) -> str:
+    if expires_at is None:
+        return "active"
+    return "active" if expires_at > datetime.utcnow() else "expired"
+
+
+def sync_accounts_from_local_cpa(
+    *,
+    settings,
+    path_value: str | None = None,
+) -> dict[str, Any]:
+    files, error = list_local_cpa_auth_files(path_value, settings)
+    payload = {
+        "source_path": str(_resolve_local_cpa_source_path(path_value, settings) or ""),
+        "summary": {
+            "scanned_count": len(files),
+            "created_count": 0,
+            "updated_count": 0,
+            "skipped_count": 0,
+            "failed_count": 0,
+        },
+        "details": [],
+    }
+
+    if error:
+        payload["summary"]["failed_count"] = 1
+        payload["details"].append({
+            "file": payload["source_path"],
+            "email": None,
+            "success": False,
+            "action": "error",
+            "message": error,
+            "account_id": None,
+        })
+        return payload
+
+    if not files:
+        return payload
+
+    with get_db() as db:
+        for file_path in files:
+            try:
+                raw_payload = json.loads(file_path.read_text(encoding="utf-8"))
+                if not isinstance(raw_payload, dict):
+                    raise ValueError("JSON root must be an object")
+
+                email = _normalize_local_cpa_email(raw_payload, file_path)
+                if not email:
+                    raise ValueError("email is missing")
+
+                expires_at = _parse_cpa_datetime(raw_payload.get("expired"))
+                last_refresh = _parse_cpa_datetime(raw_payload.get("last_refresh"))
+                status = _account_status_from_expiration(expires_at)
+                account = crud.get_account_by_email(db, email)
+                imported_at = datetime.utcnow()
+                extra_data = {
+                    "imported_from": "local_cpa_file",
+                    "local_cpa_file": str(file_path),
+                    "local_cpa_type": raw_payload.get("type") or "",
+                    "last_synced_at": imported_at.isoformat(),
+                }
+
+                if account is None:
+                    created = crud.create_account(
+                        db,
+                        email=email,
+                        password="",
+                        client_id=settings.openai_client_id,
+                        email_service=LOCAL_CPA_EMAIL_SERVICE,
+                        account_id=raw_payload.get("account_id") or None,
+                        access_token=raw_payload.get("access_token") or None,
+                        refresh_token=raw_payload.get("refresh_token") or None,
+                        id_token=raw_payload.get("id_token") or None,
+                        expires_at=expires_at,
+                        extra_data=extra_data,
+                        status=status,
+                        source=LOCAL_CPA_SYNC_SOURCE,
+                    )
+                    account = crud.update_account(
+                        db,
+                        created.id,
+                        last_refresh=last_refresh,
+                        cpa_uploaded=True,
+                        cpa_uploaded_at=imported_at,
+                    ) or created
+                    action = "created"
+                    payload["summary"]["created_count"] += 1
+                else:
+                    merged_extra = dict(account.extra_data or {})
+                    merged_extra.update(extra_data)
+                    account = crud.update_account(
+                        db,
+                        account.id,
+                        account_id=raw_payload.get("account_id") or None,
+                        access_token=raw_payload.get("access_token") or None,
+                        refresh_token=raw_payload.get("refresh_token") or None,
+                        id_token=raw_payload.get("id_token") or None,
+                        expires_at=expires_at,
+                        last_refresh=last_refresh,
+                        status=status,
+                        cpa_uploaded=True,
+                        cpa_uploaded_at=imported_at,
+                        extra_data=merged_extra,
+                    ) or account
+                    action = "updated"
+                    payload["summary"]["updated_count"] += 1
+
+                payload["details"].append({
+                    "file": str(file_path),
+                    "email": email,
+                    "success": True,
+                    "action": action,
+                    "message": "synchronized",
+                    "account_id": account.id,
+                    "status": account.status,
+                })
+            except Exception as exc:
+                payload["summary"]["failed_count"] += 1
+                payload["details"].append({
+                    "file": str(file_path),
+                    "email": None,
+                    "success": False,
+                    "action": "error",
+                    "message": str(exc),
+                    "account_id": None,
+                })
+
+    return payload
+
+
+def _unique_trash_target(trash_dir: Path, source: Path) -> Path:
+    target = trash_dir / source.name
+    if not target.exists():
+        return target
+
+    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    counter = 1
+    while True:
+        candidate = trash_dir / f"{source.stem}.invalid-{stamp}-{counter}{source.suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def cleanup_local_cpa_auth_files(emails: list[str], settings) -> dict[str, Any]:
+    results = {
+        "enabled": bool(settings.cpa.local_files.enabled),
+        "configured_path": settings.cpa.local_files.path,
+        "trash_dir": settings.cpa.local_files.trash_dir,
+        "moved_count": 0,
+        "not_found_count": 0,
+        "failed_count": 0,
+        "details": [],
+    }
+
+    if not emails:
+        return results
+
+    base_dir = _resolve_local_cpa_base_dir(settings)
+    if base_dir is None:
+        for email in emails:
+            results["details"].append({
+                "email": email,
+                "status": "disabled",
+                "moved_files": [],
+                "error": None,
+            })
+        return results
+
+    results["resolved_path"] = str(base_dir)
+
+    if not base_dir.exists() or not base_dir.is_dir():
+        for email in emails:
+            results["failed_count"] += 1
+            results["details"].append({
+                "email": email,
+                "status": "error",
+                "moved_files": [],
+                "error": f"local CPA auth directory not found: {base_dir}",
+            })
+        return results
+
+    trash_dir = _resolve_local_cpa_trash_dir(base_dir, settings)
+    results["trash_dir"] = str(trash_dir)
+
+    for email in emails:
+        matches = _find_local_cpa_auth_files(base_dir, email)
+        if not matches:
+            results["not_found_count"] += 1
+            results["details"].append({
+                "email": email,
+                "status": "not_found",
+                "moved_files": [],
+                "error": None,
+            })
+            continue
+
+        moved_files: list[str] = []
+        errors: list[str] = []
+        try:
+            trash_dir.mkdir(parents=True, exist_ok=True)
+            for match in matches:
+                target = _unique_trash_target(trash_dir, match)
+                shutil.move(str(match), str(target))
+                moved_files.append(str(target))
+        except Exception as exc:
+            errors.append(str(exc))
+
+        if errors:
+            results["failed_count"] += 1
+            results["details"].append({
+                "email": email,
+                "status": "error",
+                "moved_files": moved_files,
+                "error": "; ".join(errors),
+            })
+            continue
+
+        results["moved_count"] += len(moved_files)
+        results["details"].append({
+            "email": email,
+            "status": "moved",
+            "moved_files": moved_files,
+            "error": None,
+        })
+
+    return results
 
 
 def upload_to_cpa(

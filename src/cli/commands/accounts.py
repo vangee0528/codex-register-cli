@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from ...core.openai.token_refresh import refresh_account_token, validate_account_token
-from ...core.upload.cpa_upload import batch_upload_to_cpa
+from ...core.upload.cpa_upload import batch_upload_to_cpa, cleanup_local_cpa_auth_files
 from ...database import crud
 from ...database.models import Account
 from ...database.session import get_db
@@ -131,14 +131,22 @@ def _print_validation_result(payload: dict[str, Any]) -> None:
     print(f"valid: {summary['valid_count']}")
     print(f"invalid: {summary['invalid_count']}")
     print(f"deleted: {summary['deleted_count']}")
+    local_cleanup = payload.get("local_cpa_cleanup")
+    if local_cleanup is not None:
+        print(f"local_cpa_moved: {local_cleanup['moved_count']}")
+        print(f"local_cpa_not_found: {local_cleanup['not_found_count']}")
+        print(f"local_cpa_failed: {local_cleanup['failed_count']}")
 
     for item in payload["results"]:
         refresh_text = "not-run"
         if item["refresh"] is not None:
             refresh_text = f"{item['refresh']['success']}"
+        local_cpa_text = "not-run"
+        if item.get("local_cpa_cleanup") is not None:
+            local_cpa_text = item["local_cpa_cleanup"]["status"]
         print(
             f"#{item['id']} valid={item['valid']} deleted={item['deleted']} refresh={refresh_text} "
-            f"status={item['status_after']} email={item['email']} error={item['error'] or '-'}"
+            f"status={item['status_after']} email={item['email']} local_cpa={local_cpa_text} error={item['error'] or '-'}"
         )
 
 
@@ -206,6 +214,7 @@ def _validate_snapshots(
 ) -> tuple[dict[str, Any], int]:
     results: list[dict[str, Any]] = []
     invalid_ids: list[int] = []
+    local_cpa_cleanup: dict[str, Any] | None = None
 
     with get_db() as db:
         refresh_proxy, _, refresh_proxy_source = resolve_proxy(
@@ -273,6 +282,21 @@ def _validate_snapshots(
             if item["id"] in deleted_ids:
                 item["deleted"] = True
 
+        deleted_emails = [item["email"] for item in results if item["id"] in deleted_ids]
+        local_cpa_cleanup = cleanup_local_cpa_auth_files(deleted_emails, settings)
+        cleanup_by_email = {
+            detail["email"]: detail
+            for detail in local_cpa_cleanup["details"]
+        }
+        for item in results:
+            if item["id"] in deleted_ids:
+                item["local_cpa_cleanup"] = cleanup_by_email.get(item["email"])
+            else:
+                item["local_cpa_cleanup"] = None
+    else:
+        for item in results:
+            item["local_cpa_cleanup"] = None
+
     summary = {
         "checked_count": len(results),
         "valid_count": sum(1 for item in results if item["valid"]),
@@ -282,6 +306,7 @@ def _validate_snapshots(
     payload = {
         "summary": summary,
         "results": results,
+        "local_cpa_cleanup": local_cpa_cleanup,
         "proxy": {
             "token_refresh": {"url": refresh_proxy, "source": refresh_proxy_source},
             "account_validate": {"url": validate_proxy, "source": validate_proxy_source},
@@ -289,7 +314,8 @@ def _validate_snapshots(
     }
 
     if delete_invalid:
-        exit_code = 0 if summary["invalid_count"] == summary["deleted_count"] else 1
+        cleanup_ok = local_cpa_cleanup is None or local_cpa_cleanup["failed_count"] == 0
+        exit_code = 0 if summary["invalid_count"] == summary["deleted_count"] and cleanup_ok else 1
     else:
         exit_code = 0 if summary["invalid_count"] == 0 else 1
 

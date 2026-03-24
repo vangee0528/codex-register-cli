@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from ...core.upload.cpa_upload import batch_upload_to_cpa, test_cpa_connection
+from ...core.upload.cpa_upload import batch_upload_to_cpa, sync_accounts_from_local_cpa, test_cpa_connection
 from ...database.session import get_db
 from ..account_selection import add_account_selection_arguments, resolve_explicit_account_ids, select_accounts
 from ..bootstrap import bootstrap_cli
@@ -39,6 +39,12 @@ def add_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) 
     test_parser.add_argument("--proxy-id", type=int, help=argparse.SUPPRESS)
     test_parser.set_defaults(handler=run_cpa_test_command)
 
+    sync_local_parser = cpa_subparsers.add_parser("sync-local", help="sync local CPA json files into the database")
+    sync_local_parser.add_argument("--path", help="override config.cpa.local_files.path for this run")
+    sync_local_parser.add_argument("--output", choices=("text", "json"), default="text")
+    sync_local_parser.add_argument("--database-url", help=argparse.SUPPRESS)
+    sync_local_parser.set_defaults(handler=run_cpa_sync_local_command)
+
 
 def _print_cpa_upload_result(payload: dict) -> None:
     summary = payload["summary"]
@@ -56,6 +62,21 @@ def _print_cpa_test_result(payload: dict) -> None:
     print(f"success: {payload['success']}")
     print(f"message: {payload['message']}")
     print(f"source: {payload['source']}")
+
+
+def _print_cpa_sync_local_result(payload: dict) -> None:
+    summary = payload["summary"]
+    print(f"source_path: {payload['source_path']}")
+    print(f"scanned: {summary['scanned_count']}")
+    print(f"created: {summary['created_count']}")
+    print(f"updated: {summary['updated_count']}")
+    print(f"failed: {summary['failed_count']}")
+
+    for item in payload["details"]:
+        print(
+            f"success={item['success']} action={item['action']} "
+            f"email={item['email'] or '-'} file={item['file']} message={item['message']}"
+        )
 
 
 def run_cpa_upload_command(args: argparse.Namespace) -> int:
@@ -150,3 +171,10 @@ def run_cpa_test_command(args: argparse.Namespace) -> int:
     }
     emit_output(payload, args.output, _print_cpa_test_result)
     return 0 if success else 1
+
+
+def run_cpa_sync_local_command(args: argparse.Namespace) -> int:
+    settings = bootstrap_cli(database_url=args.database_url, log_level=None)
+    payload = sync_accounts_from_local_cpa(settings=settings, path_value=args.path)
+    emit_output(payload, args.output, _print_cpa_sync_local_result)
+    return 0 if payload["summary"]["failed_count"] == 0 else 1

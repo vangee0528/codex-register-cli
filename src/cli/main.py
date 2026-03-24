@@ -13,7 +13,7 @@ from .commands.accounts import (
     run_validate_accounts_command,
 )
 from .commands.config import run_config_path_command, run_config_show_command, run_config_ui_command
-from .commands.cpa import run_cpa_test_command, run_cpa_upload_command
+from .commands.cpa import run_cpa_sync_local_command, run_cpa_test_command, run_cpa_upload_command
 from .commands.database import run_db_init_command
 from .commands.register import run_register_command
 from .commands.run import run_workflow_command
@@ -62,6 +62,7 @@ __all__ = [
     "run_ensure_target_accounts_command",
     "run_cpa_upload_command",
     "run_cpa_test_command",
+    "run_cpa_sync_local_command",
     "run_config_show_command",
     "run_config_path_command",
     "run_config_ui_command",

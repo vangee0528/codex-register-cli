@@ -33,9 +33,9 @@ class EmailServiceType(str, Enum):
     IMAP_MAIL = "imap_mail"
 
 
-APP_NAME = "OpenAI/Codex CLI registration system"
-APP_VERSION = "2.0.0"
-APP_DESCRIPTION = "CLI workflow for OpenAI/Codex account registration"
+APP_NAME = "Codex CLI registration system"
+APP_VERSION = "2.2.0"
+APP_DESCRIPTION = "CLI workflow for Codex account registration"
 
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OAUTH_AUTH_URL = "https://auth.openai.com/oauth/authorize"
